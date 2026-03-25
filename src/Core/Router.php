@@ -1,6 +1,11 @@
 <?php
 namespace CloudPad\Core;
 
+use CloudPad\Core\Exceptions\NotFoundException;
+use CloudPad\Core\Exceptions\PermissionDeniedException;
+use CloudPad\Core\Exceptions\ValidationException;
+use CloudPad\Core\Exceptions\FileSystemException;
+
 /**
  * Router — Action dispatcher cho CloudPad.
  *
@@ -8,7 +13,11 @@ namespace CloudPad\Core;
  * Router chỉ cần:
  *   1. Xử lý standalone editor
  *   2. Delegate sang is_plugin_command()
- *   3. Log unknown actions
+ *   3. Catch exceptions từ plugin commands và trả JSON error chuẩn
+ *   4. Log unknown actions
+ *
+ * Phase 6: Exception-based error handling.
+ * Plugin commands nên throw exception thay vì echo/exit trực tiếp.
  */
 class Router
 {
@@ -35,13 +44,27 @@ class Router
         }
 
         // Tất cả actions → plugin commands trong plugins/commands/
-        if ($this->builder->is_plugin_command($action, $handler, $methodname)) {
-            if (is_object($handler)) {
-                $handler->$methodname($this->builder);
-            } else {
-                $handler($this->builder);
+        try {
+            if ($this->builder->is_plugin_command($action, $handler, $methodname)) {
+                if (is_object($handler)) {
+                    $handler->$methodname($this->builder);
+                } else {
+                    $handler($this->builder);
+                }
+                return;
             }
-            return;
+        } catch (NotFoundException $e) {
+            Response::fail($e->getMessage(), ['code' => 404]);
+        } catch (PermissionDeniedException $e) {
+            Response::fail($e->getMessage(), ['code' => 403]);
+        } catch (ValidationException $e) {
+            Response::fail($e->getMessage(), ['code' => 422]);
+        } catch (FileSystemException $e) {
+            error_log('[CloudPad] FileSystemException: ' . $e->getMessage());
+            Response::fail($e->getMessage(), ['code' => 500]);
+        } catch (\Throwable $e) {
+            error_log('[CloudPad] Unhandled exception in action "' . $action . '": ' . $e->getMessage());
+            Response::fail('Internal error', ['code' => 500]);
         }
 
         // Unknown action — chỉ log, không crash (non-ajax request vẫn render UI)
