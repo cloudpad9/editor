@@ -1,0 +1,11 @@
+{
+    "require": {
+        "phpseclib/phpseclib": "2.0.13",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "CloudPad\\": "src/"
+        }
+    }
+}

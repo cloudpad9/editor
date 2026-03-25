@@ -1,0 +1,145 @@
+/* PHONES ONLY */
+@media only screen and (max-width : 420px) {
+    body {
+        font-size: 12px;
+    }
+
+    .ui-tabs .ui-tabs-panel {
+        padding: 5px;
+    }
+
+    .ui-widget button {
+        min-width: 60px;
+    }
+
+    #command .ui-multiselect {
+        width: 100%!important;
+    }
+
+    #command input[type="text"] {
+        width: 100%;
+    }
+
+    #command .form-block {
+        width: 100%;
+        padding-bottom: 5px;
+        clear: both;
+        float: none;
+    }
+
+    #tabs-editor select,
+    #tabs-editor input[type="text"] {
+        width: 100%;
+    }
+
+    #tabs-snr select {
+        width: 100%;
+    }
+
+    #tabs-db input {
+        width: 100%;
+    }
+
+    #tabs-server input {
+        width: 100%;
+    }
+
+    #tabs-ssh input {
+        width: 100%;
+    }
+
+    #tabs-ssh .commandbar {
+        padding: 0px;
+    }
+
+    .clearer {
+        display: block!important;
+        clear: both!important;
+        float: none!important;
+    }
+
+    #tabs-timer .timer-display {
+        right: 64px;
+    }
+
+    .work-duration {
+        right: 100px;
+    }
+}
+
+@media only screen and (max-width : 777px) {
+    .clearer {
+        clear: left;
+    }
+
+    #command span.s {
+        min-width: 60px;
+        display: inline-block;
+    }
+
+    /* Vertical menu */
+    .app-tabs > ul.ui-tabs-nav {
+        position: absolute;
+        left: 0;
+        width: 200px;
+        height: 100vh;
+        border-right: 1px solid #dddddd;
+        z-index: 99999;
+        overflow: auto;
+        display: none;
+    }
+    .menu-open .app-tabs > ul.ui-tabs-nav {
+        display: block;
+    }
+    .app-tabs > ul.ui-tabs-nav > li {
+        width: 100%;
+    }
+    #app-btn-menu {
+        display: inline-block;
+    }
+    .work-duration,
+    .timer-display {
+        display: none;
+    }
+}
+
+/* iPhone 5 */
+@media only screen and (min-width : 300px) {
+}
+
+/* BlackBerry Z30 */
+@media only screen and (min-width : 360px) {
+}
+
+/* iPhone 6 */
+@media only screen and (min-width : 375px) {
+}
+
+/* iPhone 6 Plus */
+@media only screen and (min-width : 414px) {
+}
+
+/* DESKTOP, LAPTOP, IPAD */
+@media only screen and (min-width : 768px) {
+    body {
+        min-width: 1200px;
+    }
+
+    .app-name {
+        position: absolute;
+        right: 0;
+    }
+
+    .logout {
+        position: absolute;
+        right: 136px;
+    }
+
+    #command .ui-multiselect {
+        width: 138px!important;
+    }
+
+    #command input[type="text"] {
+        width: 200px;
+    }
+}
