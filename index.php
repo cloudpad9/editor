@@ -81,6 +81,11 @@ function json_response(array $arr): void {
     \CloudPad\Core\Response::json($arr);
 }
 
+// json_success() — alias của json_ok(), dùng trong master branch
+function json_success($payload = null, ?string $message = null): void {
+    \CloudPad\Core\Response::ok($payload, $message);
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 
 class plugin_fs {
@@ -214,6 +219,29 @@ class ProfilingHelper {
 
 class Builder
 {
+    // ── Service instances (lazy-initialized via getters) ──────────────────────
+    private \CloudPad\I18n\Translator            $_translator;
+    private \CloudPad\Auth\AuthService           $_auth;
+    private \CloudPad\Editor\ColorManager        $_colorManager;
+    private \CloudPad\Editor\RevisionManager     $_revisionManager;
+    private \CloudPad\Editor\SyncService         $_syncService;
+    private \CloudPad\SSH\SSHService             $_sshService;
+    private \CloudPad\Repository\RepositoryManager $_repositoryManager;
+    private \CloudPad\Search\FileSearchService   $_fileSearch;
+
+    function __construct()
+    {
+        $appDir = __DIR__;
+        $this->_translator        = new \CloudPad\I18n\Translator($appDir);
+        $this->_auth              = new \CloudPad\Auth\AuthService($this, $appDir);
+        $this->_colorManager      = new \CloudPad\Editor\ColorManager($this, $appDir);
+        $this->_revisionManager   = new \CloudPad\Editor\RevisionManager($this);
+        $this->_syncService       = new \CloudPad\Editor\SyncService($this);
+        $this->_sshService        = new \CloudPad\SSH\SSHService($this);
+        $this->_repositoryManager = new \CloudPad\Repository\RepositoryManager($this, $appDir);
+        $this->_fileSearch        = new \CloudPad\Search\FileSearchService($this);
+    }
+
     function json_response($arr) {
         \CloudPad\Core\Response::json((array)$arr);
     }
@@ -236,120 +264,27 @@ class Builder
         $this->serializeUserSessionData();
     }
 
-    function serializeUserSessionData() {
-        if (!isset($_SESSION['builder.username'])) {
-            return;
-        }
+    function serializeUserSessionData() { $this->_auth->serializeUserSessionData(); }
 
-        $data = [];
+    function reloadUserSessionData() { $this->_auth->reloadUserSessionData(); }
 
-        foreach ($_SESSION as $key => $value) {
-            // Không lưu SSH_PASSWORD vào disk
-            if (!in_array($key, ['SSH_PASSWORD'])) {
-                $data[$key] = $_SESSION[$key];
-            }
-        }
+    function isUserLoggedIn() { return $this->_auth->isUserLoggedIn(); }
 
-        $filepath = $this->getUserDataDir().'/.session';
+    function getUserSessionId() { return $this->_auth->getUserSessionId(); }
 
-        // FIX: Dùng json thay serialize() để tránh Object Injection
-        $this->file_put_contents($filepath, json_encode($data, JSON_UNESCAPED_UNICODE), '', $dummy, false);
-    }
+    function getUserDataDir() { return $this->_auth->getUserDataDir(); }
 
-    function reloadUserSessionData() {
-        if (!isset($_SESSION['builder.username'])) {
-            return;
-        }
+    function auth() { $this->_auth->auth(); }
 
-        $filepath = $this->getUserDataDir().'/.session';
+    function ensure_auth($authed) { $this->_auth->ensureAuth($authed); }
 
-        if (!file_exists($filepath)) {
-            return;
-        }
+    function get_lang() { return $this->_translator->getLang(); }
 
-        // FIX: Dùng json_decode thay unserialize() để tránh Object Injection
-        $data = json_decode($this->file_get_contents($filepath), true);
+    function load_language_file() { $this->_translator->loadLanguageFile(); }
 
-        if (!empty($data) && is_array($data)) {
-            foreach ($data as $key => $value) {
-                $_SESSION[$key] = $value;
-            }
-        }
-    }
+    function get_user_language() { return $this->_translator->getUserLanguage(); }
 
-    function isUserLoggedIn() {
-        return isset($_SESSION['authed']);
-    }
-
-    function getUserSessionId() {
-        return md5($_SESSION['builder.username']);
-    }
-
-    function getUserDataDir() {
-        $dir = __DIR__.'/tmp/'.$_SESSION['builder.username'];
-
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
-
-        return $dir;
-    }
-
-    function auth() {
-        if (!isset($_SESSION['authed'])) {
-            header('Location: index.php?action=user/login');
-        }
-    }
-
-    function ensure_auth($authed) {
-        if ($authed) {
-            if (!isset($_SESSION['authed'])) {
-                header('Location: index.php');
-            }
-        } else {
-            if (isset($_SESSION['authed'])) {
-                header('Location: index.php');
-            }
-        }
-    }
-
-    function get_lang() {
-        $lang = \CloudPad\Core\Request::getString('lang');
-
-        if (!empty($lang)) {
-            // sanitize: chỉ cho phép 2-5 ký tự alphanumeric/dash
-            $lang = preg_replace('/[^a-zA-Z0-9\-]/', '', $lang);
-        } else if (!empty($_SESSION['lang'])) {
-            $lang = $_SESSION['lang'];
-        } else if (!empty($_COOKIE['lang'])) {
-            $lang = $_COOKIE['lang'];
-        } else {
-            $lang = $this->get_user_language();
-        }
-
-        return $lang;
-    }
-
-    function load_language_file() {
-        $lang = $this->get_lang();
-
-        setcookie('lang', $lang, time() + 86400, '/'); // 10 days for the entire domain
-        $_SESSION['lang'] = $lang;
-
-        $langfile = __DIR__."/locales/{$lang}.php";
-
-        if (file_exists($langfile)) {
-            require_once($langfile);
-        }
-    }
-
-    function get_user_language() {
-        return $this->get_browser_language();
-    }
-
-    function get_browser_language() {
-        return isset($_SERVER["HTTP_ACCEPT_LANGUAGE"])? substr($_SERVER["HTTP_ACCEPT_LANGUAGE"], 0, 2) : 'en';
-    }
+    function get_browser_language() { return $this->_translator->getBrowserLanguage(); }
 
     function get_public_user_info() {
         $info = array(
@@ -360,35 +295,7 @@ class Builder
         return $info;
     }
 
-    function execute_linux($cmd, $check_cmd = true)
-    {
-        if ($check_cmd && preg_match('/(delete|del|rm)\s/is', $cmd)) {
-            $this->flush_line("[ERROR] Command not allowed.\n", true);
-
-            return false;
-        }
-
-        $cwd = isset($_SESSION['cwd']) ? $_SESSION['cwd'] : '';
-
-        $res = $this->exec($cmd, $cwd);
-
-        if (preg_match('/^cd (.+)/is', $cmd, $match)) {
-            if (!empty($cwd)) {
-                if ($match[1][0] != DIRECTORY_SEPARATOR) {
-                    $cwd = realpath($cwd . DIRECTORY_SEPARATOR . $match[1]);
-                } else {
-                    $cwd = $match[1];
-                }
-            } else {
-                $cwd = $match[1];
-            }
-            $_SESSION['cwd'] = $cwd;
-        }
-
-        echo "[$cwd]#<br/>";
-
-        return $res;
-    }
+    function execute_linux($cmd, $check_cmd = true) { return $this->_sshService->executeLinux($cmd, $check_cmd); }
 
     function exec($cmd, $cwd = null, $return_output = false, &$output = '')
     {
@@ -1041,55 +948,15 @@ class Builder
         \CloudPad\Core\Response::ok();
     }
 
-    function getUserUploadDir() {
-        $dir = __DIR__.'/tmp/'.$_SESSION['builder.username'].'/uploads';
+    function getUserUploadDir() { return $this->_auth->getUserUploadDir(); }
 
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
+    function getUserRepositoryDir() { return $this->_auth->getUserRepositoryDir(); }
 
-        return $dir;
-    }
+    function getUserTempDir() { return $this->_auth->getUserTempDir(); }
 
-    function getUserRepositoryDir() {
-        $dir = __DIR__.'/tmp/'.$_SESSION['builder.username'].'/repo';
+    function getUserRevisionDir() { return $this->_auth->getUserRevisionDir(); }
 
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
-
-        return $dir;
-    }
-
-    function getUserTempDir() {
-        $dir = __DIR__.'/tmp/'.$_SESSION['builder.username'];
-
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
-
-        return $dir;
-    }
-
-    function getUserRevisionDir() {
-        $dir = __DIR__.'/tmp/'.$_SESSION['builder.username'].'/rev';
-
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
-
-        return $dir;
-    }
-
-    function getUserTempRevisionDir() {
-        $dir = __DIR__.'/tmp/'.$_SESSION['builder.username'].'/temprev';
-
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
-
-        return $dir;
-    }
+    function getUserTempRevisionDir() { return $this->_auth->getUserTempRevisionDir(); }
 
     function getUserTempFilePaths() {
         $dir = $this->getUserTempDir();
@@ -1158,55 +1025,11 @@ class Builder
         \CloudPad\Core\Response::json(array('success' => true, 'content' => '', 'filename' => $rpath, 'repository' => '*'));
     }
 
-    function set_color($filename, $repository, $color) {
-        $filepath = $this->getAbsoluteFilePath($filename, $repository);
+    function set_color($filename, $repository, $color) { $this->_colorManager->setColor($filename, $repository, $color); }
 
-        if (empty($filepath)) {
-            \CloudPad\Core\Response::json(array('success' => false, 'message' => 'Source file not found.'));
+    function get_color($filepath) { return $this->_colorManager->getColor($filepath); }
 
-            return;
-        }
-
-        $colorfile = $this->get_color_file();
-
-        if (file_exists($colorfile)) {
-            $colors = json_decode($this->file_get_contents($colorfile), true) ?: [];
-        } else {
-            $colors = [];
-        }
-
-        if (!empty($color)) {
-            $colors[$filepath] = $color;
-        } else {
-            if (isset($colors[$filepath])) {
-                unset($colors[$filepath]);
-            }
-        }
-
-        $this->file_put_contents($colorfile, json_encode($colors, JSON_UNESCAPED_UNICODE));
-
-        \CloudPad\Core\Response::json(array('success' => true));
-    }
-
-    function get_color($filepath) {
-        $colorfile = $this->get_color_file();
-
-        if (file_exists($colorfile)) {
-            $colors = json_decode($this->file_get_contents($colorfile), true) ?: [];
-
-            return isset($colors[$filepath]) ? $colors[$filepath] : '';
-        }
-    }
-
-    function get_color_file() {
-        $dir = __DIR__.'/tmp/'.$_SESSION['builder.username'];
-
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
-
-        return $dir.'/.color';
-    }
+    function get_color_file() { return $this->_colorManager->getColorFile(); }
 
     function clone_file($filename, $repository, $newname) {
         $filepath = $this->getAbsoluteFilePath($filename, $repository);
@@ -1242,329 +1065,34 @@ class Builder
         \CloudPad\Core\Response::json(array('success' => true, 'content' => $content, 'filename' => $rpath, 'repository' => $repository));
     }
 
-    function save_file_revision($filepath, $content) {
-        $dir = $this->getUserRevisionDir();
+    function save_file_revision($filepath, $content) { $this->_revisionManager->saveFileRevision($filepath, $content); }
 
-        $md5 = $this->get_revision_prefix($filepath);
+    function create_temp_revision($filepath, $content) { $this->_revisionManager->createTempRevision($filepath, $content); }
 
-        $revcount = $this->get_revision_count($dir, $md5);
+    function get_revision_count($revdir, $filename) { return $this->_revisionManager->getRevisionCount($revdir, $filename); }
 
-        $revfile = $dir.'/'.$md5.'.'.($revcount);
-        $newrevfile = $dir.'/'.$md5.'.'.($revcount+1);
+    function get_revision_prefix($filepath) { return $this->_revisionManager->getRevisionPrefix($filepath); }
 
-        if (!file_exists($revfile) || $content != $this->file_get_contents($revfile)) {
-            $this->file_put_contents($newrevfile, $content);
-        }
-    }
+    function get_latest_revision_content($filepath) { return $this->_revisionManager->getLatestRevisionContent($filepath); }
 
-    function create_temp_revision($filepath, $content) {
-        $dir = $this->getUserTempRevisionDir();
+    function get_latest_temp_revision_content($filepath) { return $this->_revisionManager->getLatestTempRevisionContent($filepath); }
 
-        $md5 = $this->get_revision_prefix($filepath);
+    function revert_file($filename, $repository) { $this->_revisionManager->revertFile($filename, $repository); }
 
-        $revcount = $this->get_revision_count($dir, $md5);
+    function recover_file($filename, $repository) { $this->_revisionManager->recoverFile($filename, $repository); }
 
-        $revfile = $dir.'/'.$md5.'.'.($revcount);
-        $newrevfile = $dir.'/'.$md5.'.'.($revcount+1);
-
-        if (!file_exists($revfile) || $content != $this->file_get_contents($revfile)) {
-            $this->file_put_contents($newrevfile, $content);
-        }
-    }
-
-    function get_revision_count($revdir, $filename) {
-        $filepaths = glob("$revdir/$filename.*");
-
-        $maxcount = 10;
-
-        $file2suffix = array();
-
-        foreach ($filepaths as $filepath) {
-            if (preg_match('/\.([0-9]+)$/is', $filepath, $match)) {
-                $file2suffix[$filepath] = $match[1];
-            }
-        }
-
-        arsort($file2suffix);
-
-        $count = count($file2suffix);
-        $i = 0;
-        $maxsuffix = 0;
-
-        foreach ($file2suffix as $filepath => $suffix) {
-            $i += 1;
-
-            if ($i == 1) {
-                $maxsuffix = $suffix;
-            }
-
-            if ($i > $maxcount) {
-                unlink($filepath);
-            }
-        }
-
-        return $maxsuffix;
-    }
-
-    function get_revision_prefix($filepath) {
-        return basename($filepath).'.'.substr(md5($filepath), 0, 6);
-    }
-
-    function get_latest_revision_content($filepath) {
-        $dir = $this->getUserRevisionDir();
-
-        $md5 = $this->get_revision_prefix($filepath);
-
-        $revcount = $this->get_revision_count($dir, $md5);
-
-        if (!$revcount) {
-            return;
-        }
-
-        $revfile = $dir.'/'.$md5.'.'.($revcount);
-
-        if (!file_exists($revfile)) {
-            return;
-        }
-
-        $content = $this->file_get_contents($revfile);
-        unlink ($revfile);
-
-        return $content;
-    }
-
-    function get_latest_temp_revision_content($filepath) {
-        $dir = $this->getUserTempRevisionDir();
-
-        $md5 = $this->get_revision_prefix($filepath);
-
-        $revcount = $this->get_revision_count($dir, $md5);
-
-        if (!$revcount) {
-            return;
-        }
-
-        $revfile = $dir.'/'.$md5.'.'.($revcount);
-
-        if (!file_exists($revfile)) {
-            return;
-        }
-
-        $content = $this->file_get_contents($revfile);
-
-        return $content;
-    }
-
-    function revert_file($filename, $repository) {
-        $filepath = $this->getAbsoluteFilePath($filename, $repository);
-
-        if (empty($filepath)) {
-            \CloudPad\Core\Response::json(array('success' => false, 'message' => 'Source file not found.'));
-
-            return;
-        }
-
-        $content = $this->get_latest_revision_content($filepath);
-
-        if (empty($content)) {
-            \CloudPad\Core\Response::json(array('success' => false, 'message' => 'File revisions not found.'));
-
-            return;
-        }
-
-        $this->file_put_contents($filepath, $content);
-
-        \CloudPad\Core\Response::json(array('success' => true, 'content' => $content, 'filename' => $filename, 'repository' => $repository));
-    }
-
-    function recover_file($filename, $repository) {
-        $filepath = $this->getAbsoluteFilePath($filename, $repository);
-
-        if (empty($filepath)) {
-            \CloudPad\Core\Response::json(array('success' => false, 'message' => 'Source file not found.'));
-
-            return;
-        }
-
-        $content = $this->get_latest_temp_revision_content($filepath);
-
-        if (empty($content)) {
-            \CloudPad\Core\Response::json(array('success' => false, 'message' => 'File revisions not found.'));
-
-            return;
-        }
-
-        $this->file_put_contents($filepath, $content);
-
-        \CloudPad\Core\Response::json(array('success' => true, 'content' => $content, 'filename' => $filename, 'repository' => $repository));
-    }
-
-    function reload_file($filename, $repository) {
-        $filepath = $this->getAbsoluteFilePath($filename, $repository);
-
-        if (empty($filepath)) {
-            \CloudPad\Core\Response::json(array('success' => false, 'message' => 'Source file not found.'));
-
-            return;
-        }
-
-        $content = $this->file_get_contents($filepath, $repository);
-
-        \CloudPad\Core\Response::json(array('success' => true, 'content' => $content, 'filename' => $filename, 'repository' => $repository));
-    }
+    function reload_file($filename, $repository) { $this->_revisionManager->reloadFile($filename, $repository); }
 
     ////////////////////////////////////////////////////////////////////////////
     // NOTE: $path có dạng `<index>://<relpath>`
     ////////////////////////////////////////////////////////////////////////////
-    function getAbsolutePath($path, $repository) {
-        $settings = $this->getRepositorySettings($repository);
-        $dirs = $settings['dirs'];
+    function getAbsolutePath($path, $repository) { return $this->_repositoryManager->getAbsolutePath($path, $repository); }
 
-        // Xác định brand và relpath
-        $branch = '';
+    function getAbsoluteFilePath($filename, $repository) { return $this->_repositoryManager->getAbsoluteFilePath($filename, $repository); }
 
-        if (preg_match('/^([0-9]+)\:\/\/(.*)/', trim($path), $match)) {
-            $branch = $match[1];
-            $path = $match[2];
-        }
+    function sync_file($filename, $repository, $revert = false) { $this->_syncService->syncFile($filename, $repository, $revert); }
 
-        $path = ltrim($path, '/');
-
-        if (!empty($branch)) {
-            $branchDir = isset($dirs[$branch - 1])? $dirs[$branch - 1] : '';
-
-            if (!empty($branchDir) && is_dir($branchDir)) {
-                $branchDir = rtrim($branchDir, '/');
-
-                $path = $branchDir.'/'.$path;
-            }
-        } else {
-            foreach ($dirs as $dir) {
-                $dir = rtrim($dir, '/');
-
-                if (file_exists($dir.'/'.$path)) {
-                    $path = $dir.'/'.$path;
-
-                    break;
-                }
-            }
-        }
-
-        return $path;
-    }
-
-    function getAbsoluteFilePath($filename, $repository) {
-        $filepath = isset($_SESSION['filepaths'][$repository][$filename]) ? $_SESSION['filepaths'][$repository][$filename] : '';
-
-        $is_temp_file = ($filename[0] == '*');
-
-        if (!empty($filepath) && !$is_temp_file && basename($filename) !== basename($filepath)) {
-            $filepath = null;
-        }
-
-        // Xác định brand và relpath
-        $branch = '';
-
-        if (preg_match('/^([0-9]+)\:\/\/(.*)/', trim($filename), $match)) {
-            $branch = $match[1];
-            $filename = $match[2];
-        }
-
-        if (!empty($branch)) {
-            $branchDir = isset($dirs[$branch - 1])? $dirs[$branch - 1] : '';
-
-            if (!empty($branchDir) && is_dir($branchDir)) {
-                $branchDir = rtrim($branchDir, '/');
-
-                $filepath = $branchDir.'/'.$filename;
-            }
-        }
-
-        if (empty($filepath)) {
-            $filepath = $this->searchForFile($filename, $repository);
-        }
-
-        if (empty($filepath)) {
-            $settings = $this->getRepositorySettings($repository);
-            $dirs = $settings['dirs'];
-
-            foreach ($dirs as $dir) {
-                if (file_exists($dir.'/'.$filename)) {
-                    return $dir.'/'.$filename;
-                }
-            }
-        }
-
-        return $filepath;
-    }
-
-    function sync_file($filename, $repository, $revert = false) {
-        $filepath = $this->getAbsoluteFilePath($filename, $repository);
-
-        if (!file_exists($filepath)) {
-            return;
-        }
-
-        if (empty($filepath)) {
-            \CloudPad\Core\Response::json(array('success' => false, 'message' => 'Source file not found.'));
-
-            return;
-        }
-
-        $sync_dest = $this->get_sync_dest($filepath);
-
-        if (!empty($sync_dest)) {
-            // Ensure directory
-            $dir = dirname($sync_dest);
-
-            if (!empty($dir) && !is_dir($dir)) {
-                if (!mkdir($dir, 0777, true)) {
-                    \CloudPad\Core\Response::json(array('success' => false, 'message' => "[ERROR] Cannot create directory : $dir"));
-
-                    return false;
-                }
-            }
-
-            // Revert
-            if ($revert) {
-                $tmp = $filepath;
-
-                $filepath = $sync_dest;
-                $sync_dest = $tmp;
-            }
-
-            // Sync
-            $content = $this->file_get_contents($filepath, $repository);
-
-            if ($this->file_put_contents($sync_dest, $content, '', $message)) {
-                $message = "File synced.";
-            } else {
-                $message = "Sync failed. $message";
-            }
-        } else {
-            $message = "Sync is not enabled for this file.";
-        }
-
-        \CloudPad\Core\Response::json(array('success' => true, 'message' => $message));
-    }
-
-    function get_sync_dest($filepath) {
-        $repository = $this->getFileRepository($filepath);
-
-        if (!empty($repository)) {
-            $settings = $this->getRepositorySettings($repository);
-
-            if (isset($settings['sync']) && !empty($settings['sync'])) {
-                  $sync_routes += $settings['sync'];
-            }
-        }
-
-        foreach ($sync_routes as $s => $d) {
-            if (stripos($filepath, $s) === 0) {
-                return str_replace($s, $d, $filepath);
-            }
-        }
-    }
+    function get_sync_dest($filepath) { return $this->_syncService->getSyncDest($filepath); }
 
     function rebuild_sub_indexes($filename, $repository, $revert = false) {
         $filepath = $this->getAbsoluteFilePath($filename, $repository);
@@ -1761,53 +1289,11 @@ class Builder
         return $files;
     }
 
-    function searchForFile($filename, $repository) {
-        $files = $this->searchForFiles($filename, $repository, 1, true);
+    function searchForFile($filename, $repository) { return $this->_fileSearch->searchForFile($filename, $repository); }
 
-        return !empty($files) ? $files[0] : '';
-    }
+    function searchForFiles($filename, $repository, $limit = 0, $exact = false) { return $this->_fileSearch->searchForFiles($filename, $repository, $limit, $exact); }
 
-    function searchForFiles($filename, $repository, $limit = 0, $exact = false)
-    {
-        $filepaths = $this->getRepositoryFilePaths($repository, false);
-
-        return $this->searchForFilesInArray($filename, $filepaths, $limit, $exact);
-    }
-
-    function searchForFilesInArray($filename, $filepaths, $limit = 0, $exact = false)
-    {
-        $nameonly  = stripos($filename, '/') === false;
-        $withpath  = !$nameonly;
-        $withregex = stripos($filename, '*') !== false;
-
-        if ($withregex) {
-            $filename_regex = $filename;
-            $filename_regex = str_replace('.', '\.', $filename_regex);
-            $filename_regex = str_replace('/', '\/', $filename_regex);
-            $filename_regex = str_replace('-', '\-', $filename_regex);
-            $filename_regex = str_replace('*', '.*', $filename_regex);
-
-            $filename_regex = '/' . $filename_regex . '/is';
-        }
-
-        $results = array();
-        $count   = 0;
-
-        $substrLength = strlen($filename);
-
-        foreach ($filepaths as $path) {
-            if ((!$exact && stripos($path, $filename) !== false) || ($exact && substr_compare($path, $filename, -$substrLength) === 0) || $withregex && preg_match($filename_regex, $path)) {
-                $results[] = $path;
-                $count += 1;
-
-                if ($limit && $count >= $limit) {
-                    break;
-                }
-            }
-        }
-
-        return $results;
-    }
+    function searchForFilesInArray($filename, $filepaths, $limit = 0, $exact = false) { return $this->_fileSearch->searchForFilesInArray($filename, $filepaths, $limit, $exact); }
 
     function verbose($content)
     {
@@ -1818,277 +1304,30 @@ class Builder
         }
     }
 
-    function is_path_matched($path, $pattern) {
-        if (strpos($pattern, '*') === false) {
-            return stripos($path, $pattern) !== false;
-        }
+    function is_path_matched($path, $pattern) { return $this->_fileSearch->isPathMatched($path, $pattern); }
 
-        $pattern = str_replace(['/', '.', '*'], ['\/', '\.', '.*'], $pattern);
+    function is_excluded_path($file, $excludes, $includes) { return $this->_fileSearch->isExcludedPath($file, $excludes, $includes); }
 
-        return preg_match('/'.$pattern.'/i', $path);
-    }
+    function glob($dir) { return $this->_fileSearch->glob($dir); }
 
-    function is_excluded_path($file, $excludes, $includes)
-    {
-        foreach ($includes as $include) {
-            if ($this->is_path_matched($file, $include)) {
-                return false;
-            }
-        }
+    function rsearch($dir, $excludes = array(), $includes = array(), $fs_prefix = '') { return $this->_fileSearch->rsearch($dir, $excludes, $includes, $fs_prefix); }
 
-        foreach ($excludes as $exclude) {
-            if ($this->is_path_matched($file, $exclude)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    function glob($dir) {
-        $tree = array();
-
-        if (is_dir($dir)) {
-            $iterator = new DirectoryIterator($dir);
-
-            foreach ($iterator as $entry) {
-                if ($entry->isFile() || ($entry->isDir() && !$entry->isDot() && $entry->getFilename() !== '.svn')) {
-                    $tree[] = $entry->getPathname();
-                }
-            }
-        } else {
-            $this->verbose('[ERROR] Directory does not exist <-- ' . $dir);
-        }
-
-        return $tree;
-    }
-
-    function rsearch($dir, $excludes = array(), $includes = array(), $fs_prefix = '') {
-        $dirs = array(rtrim($dir, '/'));
-        $filepaths = array();
-
-        while($dirs) {
-            $dir = array_pop($dirs);
-            $tree = $this->glob($dir);
-
-            if (is_array($tree)) {
-                foreach ($tree as $file) {
-                    if ($this->is_excluded_path($file, $excludes, $includes)) {
-                        continue;
-                    }
-
-                    if (is_dir($file) && basename($file) != 'cache') {
-                        $dirs[] = $file;
-                    } elseif (is_file($file)) {
-                        $filepaths[] = str_replace($fs_prefix, '', $file);
-                    }
-                }
-            }
-        }
-
-        return $filepaths;
-    }
-
-    function getRepositoryCacheFile($repository) {
-        $settings = $this->getRepositorySettings($repository);
-
-        $dirs      = $settings['dirs'];
-
-        $signature = md5($repository.implode(',', $dirs));
-
-        $cachefile = __DIR__ . '/cache/' . $signature;
-
-        return $cachefile;
-    }
+    function getRepositoryCacheFile($repository) { return $this->_repositoryManager->getRepositoryCacheFile($repository); }
 
     // IMPORTANT: SFTP resource should not be closed  before accessing files.
     // So, a return variable &$sftp should be used to keep this resource alive
     // after function exiting
-    function get_sftp_prefix($host, $port, $username, $password, &$sftp) {
-        $connection = ssh2_connect($host, $port);
+    function get_sftp_prefix($host, $port, $username, $password, &$sftp) { return $this->_repositoryManager->getSftpPrefix($host, $port, $username, $password, $sftp); }
 
-        if (!$connection) {
-            $this->verbose('[ERROR] Cannot connect to the SFTP server --> '.$host.':'.$port);
-            return;
-        }
+    function getRepositoryFilePaths($repository, $force_rebuild = false) { return $this->_repositoryManager->getRepositoryFilePaths($repository, $force_rebuild); }
 
-        // Authentication using a public key
-        $authenticated = ssh2_auth_password ($connection, $username, $password);
+    function getProjectFilePaths($repository, $force_rebuild = false) { return $this->_repositoryManager->getProjectFilePaths($repository, $force_rebuild); }
 
-        if (!$authenticated) {
-            $this->verbose('[ERROR] Cannot authenticate with the SFTP server using username/password');
-            return;
-        }
+    private function rebuildIndexesUsingRust($dirs, $outputFile) { $this->_repositoryManager->rebuildIndexesUsingRust($dirs, $outputFile); }
 
-        // Initialize SFTP subsystem
-        $sftp = ssh2_sftp($connection);
-        $sftp_fd = intval($sftp);
+    function getFileRepository($filepath) { return $this->_repositoryManager->getFileRepository($filepath); }
 
-        return 'ssh2.sftp://'.$sftp_fd;
-    }
-
-    function getRepositoryFilePaths($repository, $force_rebuild = false) {
-        if (!$this->hasRepositoryPermission($repository)) {
-            return array();
-        }
-
-        $settings = $this->getRepositorySettings($repository);
-
-        $dirs = $settings['dirs'];
-        $excludes = isset($settings['excludes']) ? $settings['excludes'] : array();
-        $includes = isset($settings['includes']) ? $settings['includes'] : array();
-
-        $excludes[] = '/node_modules/';
-        $excludes[] = '/vendor/';
-        $excludes[] = '/.git/';
-        $excludes[] = '/.svn/';
-
-        $signature = md5($repository.implode(',', $dirs));
-
-        $cachefile = __DIR__ . '/cache/' . $signature;
-
-        if (!file_exists($cachefile) || $force_rebuild) {
-            $is_sftp = isset($settings['sftp'])
-                && isset($settings['sftp']['host'])
-                && isset($settings['sftp']['port'])
-                && isset($settings['sftp']['username'])
-                && isset($settings['sftp']['password']);
-
-            if ($is_sftp) {
-                $fs_prefix = $this->get_sftp_prefix($settings['sftp']['host'], $settings['sftp']['port'], $settings['sftp']['username'], $settings['sftp']['password'], $sftp);
-
-                if (empty($fs_prefix)) {
-                    $this->verbose("[ERROR] Cannot connect to remote file system via SFTP\n");
-
-                    return array();
-                }
-            } else {
-                $fs_prefix = '';
-            }
-
-            $this->rebuildIndexesUsingRust($dirs, $cachefile);
-        }
-
-        $filepaths = include $cachefile;
-
-        return $filepaths;
-    }
-
-    function getProjectFilePaths($repository, $force_rebuild = false) {
-        if (!$this->hasRepositoryPermission($repository)) {
-            return array();
-        }
-
-        $settings = $this->getRepositorySettings($repository);
-
-        $dirs = $settings['dirs'];
-        $excludes = isset($settings['excludes']) ? $settings['excludes'] : array();
-        $includes = isset($settings['includes']) ? $settings['includes'] : array();
-
-        $excludes[] = '/node_modules/';
-        $excludes[] = '/vendor/';
-        $excludes[] = '/.git/';
-        $excludes[] = '/.svn/';
-
-        $signature = md5($repository.implode(',', $dirs));
-
-        $cachefile = dirname(__FILE__) . '/cache/' . $signature;
-
-        if (!file_exists($cachefile) || $force_rebuild) {
-            $is_sftp = isset($settings['sftp'])
-                && isset($settings['sftp']['host'])
-                && isset($settings['sftp']['port'])
-                && isset($settings['sftp']['username'])
-                && isset($settings['sftp']['password']);
-
-            if ($is_sftp) {
-                $fs_prefix = $this->get_sftp_prefix($settings['sftp']['host'], $settings['sftp']['port'], $settings['sftp']['username'], $settings['sftp']['password'], $sftp);
-
-                if (empty($fs_prefix)) {
-                    $this->verbose("[ERROR] Cannot connect to remote file system via SFTP\n");
-
-                    return array();
-                }
-            } else {
-                $fs_prefix = '';
-            }
-
-            // $filepaths = array();
-
-            // foreach ($dirs as $dir) {
-            //     $paths = $this->rsearch($fs_prefix.$dir, $excludes, $includes, $fs_prefix);
-
-            //     if (!empty($paths)) {
-            //         $filepaths = array_merge($filepaths, $paths);
-            //     }
-            // }
-
-            $this->rebuildIndexesUsingRust($dirs, $cachefile);
-        }
-
-        $filepaths = include $cachefile;
-
-        return $filepaths;
-    }
-
-    private function rebuildIndexesUsingRust($dirs, $outputFile) {
-        $rustBinary = __DIR__.'/bin/rust/rebuild-indexes/target/release/rebuild-indexes';
-
-        if (!is_file($rustBinary)) {
-            $this->error('Rebuild binary not found. Please build the Rust binary first.');
-        }
-
-        // FIX: escapeshellarg() cho từng dir và outputFile
-        $escapedDirs = array_map('escapeshellarg', $dirs);
-        $command = escapeshellarg($rustBinary) . ' ' . implode(' ', $escapedDirs) . ' ' . escapeshellarg($outputFile);
-
-        $this->try_exec($command, $error);
-
-        if (!empty($error)) {
-            $this->error($error);
-        }
-    }
-
-    function getFileRepository($filepath) {
-        $repositories = $this->getRepositories();
-
-        foreach ($repositories as $repository => $settings) {
-            $dirs = $settings['dirs'];
-
-            foreach ($dirs as $dir) {
-                if (stripos($filepath, $dir) !== 0) {
-                    continue;
-                }
-
-                $filepaths = $this->getRepositoryFilePaths($repository, false);
-
-                if (in_array($filepath, $filepaths)) {
-                    return $repository;
-                }
-            }
-        }
-    }
-
-    function getRepositoryWisePath($filepath, $repository, $filename) {
-        if (empty($repository)) {
-            return $filename;
-        }
-
-        $settings = $this->getRepositorySettings($repository);
-
-        $dirs = $settings['dirs'] ?? [];
-
-        foreach ($dirs as $index => $dir) {
-            if (stripos($filepath, $dir) !== 0) {
-                continue;
-            }
-
-            $filepath = str_replace(rtrim($dir, '/').'/', ($index + 1).'://', $filepath);
-            break;
-        }
-
-        return $filepath;
-    }
+    function getRepositoryWisePath($filepath, $repository, $filename) { return $this->_repositoryManager->getRepositoryWisePath($filepath, $repository, $filename); }
 
     function get_enabled_plugins() {
         return $this->getEnabledPluginsOfCurrentUser();
@@ -2114,65 +1353,11 @@ class Builder
         return $modules;
     }
 
-    function getRepositoriesFromFile() {
-        return  include(__DIR__.'/repositories.conf.php');
-    }
+    function getRepositoriesFromFile() { return $this->_repositoryManager->getRepositoriesFromFile(); }
 
-    function getRepositories() {
-        static $repositories = null;
+    function getRepositories() { return $this->_repositoryManager->getRepositories(); }
 
-        if ($repositories === null) {
-            $all = $this->getRepositoriesFromFile();
-
-            $repos = $_SESSION['builder.user']['repositories'];
-
-            $repositories = array();
-
-            foreach ($repos as $repo) {
-                if (!isset($all[$repo])) {
-                    continue;
-                }
-
-                $settings = $all[$repo];
-
-                $handler = $this->getRepositoryHandler($settings);
-
-                if (empty($handler)) {
-                    $this->error("Cannot get handler of repository '".$settings['name']."'");
-
-                    continue;
-                }
-
-                if (!$handler->isAccessible($settings)) {
-                    continue;
-                }
-
-                $handler->init($settings);
-
-                $settings['handler'] = $handler;
-
-                if (isset($settings['code'])) {
-                    $realrepo = $settings['code'];
-                } else {
-                    $realrepo = $repo;
-                }
-
-                $repositories[$realrepo] = $settings;
-            }
-        }
-
-        return $repositories;
-    }
-
-    function getRepositoryHandler($settings) {
-        $fs = isset($settings['type'])? $settings['type'] : 'local';
-
-        if ($this->has_plugin_fs($fs, $handler)) {
-            return $handler;
-        }
-
-        return null;
-    }
+    function getRepositoryHandler($settings) { return $this->_repositoryManager->getRepositoryHandler($settings); }
 
     function has_plugin_fs($fs, &$handler) {
         $handler = null;
@@ -2209,9 +1394,7 @@ class Builder
         return true;
     }
 
-    function getCurrentUser() {
-        return $_SESSION['builder.user'];
-    }
+    function getCurrentUser() { return $this->_auth->getCurrentUser(); }
 
     static function getAvailablePluginsOfCurrentUser() {
         $plugins = isset($_SESSION['builder.user']['plugins'])? $_SESSION['builder.user']['plugins'] : array();
@@ -2235,23 +1418,11 @@ class Builder
         return ['editor', 'snr'];
     }
 
-    function getCurrentUsername() {
-        return $_SESSION['builder.username'];
-    }
+    function getCurrentUsername() { return $this->_auth->getCurrentUsername(); }
 
-    function hasRepositoryPermission($repository) {
-        if (empty($repository)) {
-            return true;
-        }
+    function hasRepositoryPermission($repository) { return $this->_repositoryManager->hasRepositoryPermission($repository); }
 
-        $repositories = $this->getRepositories();
-
-        return isset($repositories[$repository]);
-    }
-
-    function getUsers() {
-        return  include(__DIR__.'/users.conf.php');
-    }
+    function getUsers() { return $this->_auth->getUsers(); }
 
     static function hasPermission($key) {
         $perms = self::getCurrentUserPermission();
@@ -2324,28 +1495,7 @@ class Builder
         return $handlers;
     }
 
-    function getRepositorySettings($repository) {
-        static $cache = [];
-
-        if ($repository == '*') {
-            return array();
-        }
-
-        if (isset($cache[$repository])) {
-            return $cache[$repository];
-        }
-
-        $repositories = $this->getRepositories();
-
-        if (!isset($repositories[$repository])) {
-            $this->verbose("[ERROR] Repository '$repository' is not found");
-            return;
-        }
-
-        $cache[$repository] = $repositories[$repository];
-
-        return $cache[$repository];
-    }
+    function getRepositorySettings($repository) { return $this->_repositoryManager->getRepositorySettings($repository); }
 
     function file_mask_matched($pattern, $path) {
         $patterns = preg_split('/[,;\s]+/', $pattern, -1, PREG_SPLIT_NO_EMPTY);
@@ -2654,254 +1804,15 @@ class Builder
         echo '<div class="diff-response">'.$rendered_diff.'</div>';
     }
 
-    function ssh_ensure_safe_command($command) {
-        if (preg_match('/(rm|rmdir)\s+/i', $command) && !preg_match('/(svn delete)\s+/i', $command)) {
-            $this->flush_line("[ERROR] Unsafe commands are not allowed. Please check again.", true);
+    function ssh_ensure_safe_command($command) { $this->_sshService->ensureSafeCommand($command); }
 
-            exit(-1);
-        }
-    }
+    function ssh_exec($exec_builtin = true, $exec_custom = true) { $this->_sshService->sshExec($exec_builtin, $exec_custom); }
 
-    function ssh_exec($exec_builtin = true, $exec_custom = true) {
-        $requires = ['SSH_HOST', 'SSH_PORT', 'SSH_USERNAME'];
+    function private_ssh_exec($commands) { $this->_sshService->privateSshExec($commands); }
 
-        foreach ($requires as $name) {
-            if (empty(\CloudPad\Core\Request::getString($name))) {
-                $this->flush_line("[ERROR] $name is required\n", true);
-                return;
-            }
-        }
+    function ssh_getAugmentedOutput($output, $command) { return $this->_sshService->getAugmentedOutput($output, $command); }
 
-        $ssh_command       = \CloudPad\Core\Request::getString('SSH_COMMAND');
-        $ssh_commands      = \CloudPad\Core\Request::getString('SSH_COMMANDS');
-        $ssh_command_names = \CloudPad\Core\Request::getArray('SSH_COMMAND_NAMES');
-
-        if (empty($ssh_command_names) && empty($ssh_command) && empty($ssh_commands)) {
-            $this->flush_line("[ERROR] Please specify a command\n", true);
-            return;
-        }
-
-        $host          = \CloudPad\Core\Request::getString('SSH_HOST');
-        $port          = \CloudPad\Core\Request::getInt('SSH_PORT', (int) SSH_PORT);
-        $username      = \CloudPad\Core\Request::getString('SSH_USERNAME');
-        $password      = \CloudPad\Core\Request::getString('SSH_PASSWORD');
-        $command       = $ssh_command;
-        $commands      = $ssh_commands;
-        $command_names = $ssh_command_names;
-
-        $actual_commands = array();
-
-        $shell_commands = $this->getFrequentUsedShellCommands();
-
-        if ($exec_builtin && !empty($command_names)) {
-            foreach ($command_names as $name) {
-                $command = isset($shell_commands[$name])? $shell_commands[$name] : '';
-
-                if (!empty($command)) {
-                    $actual_commands[] = $command;
-                }
-            }
-        } else if ($exec_custom) {
-            if (!empty($commands)) {
-                $actual_commands = explode("\n", $commands);
-            } else {
-                $actual_commands = array($command);
-            }
-        }
-
-        if (empty($password) && isset($_SESSION['SSH_PASSWORD'])) {
-            $password = $_SESSION['SSH_PASSWORD'];
-        }
-
-        $ssh = new SSH2($host, $port);
-
-        if (true) {
-            $ssh = new SSH2('localhost', SSH_PORT);
-
-            $rsaPrivateKey = file_get_contents(SSH_RSA_PRIVATE_FILE);
-
-            if (empty($rsaPrivateKey)) {
-                exit("Cannot read private key file");
-            }
-
-            $key = new RSA();
-            $key->setPassword(SSH_RSA_PASSPHRASE);
-            $key->loadKey($rsaPrivateKey);
-
-            if (!$ssh->login(SSH_RSA_USERNAME, $key)) {
-                echo $ssh->getLastError();
-                exit('SSH login failed');
-            }
-        } else {
-            if (!$ssh->login($username, $password)) {
-                echo $ssh->getLastError();
-                exit('SSH login failed');
-            }
-        }
-
-        $ssh->setWindowColumns(160);
-
-        $pty_required_commands = array('top', 'sudo', 'svn');
-
-        foreach ($actual_commands as $command) {
-            $command = trim($command);
-
-            if (empty($command) || $command[0] == '#') {
-                continue;
-            }
-
-            $this->ssh_ensure_safe_command($command);
-
-            list($_command) = explode(' ', $command);
-
-            $require_pty = in_array($_command, $pty_required_commands);
-
-            if ($require_pty) {
-                $ssh->enablePTY();
-
-                $ssh->exec($command);
-
-                $ssh->setTimeout(100);
-
-                $output = $ssh->read();
-            } else {
-                $output = $ssh->exec($command);
-            }
-
-            $output = $this->ssh_getAugmentedOutput($output, $command);
-
-            echo $output;
-        }
-
-        $_SESSION['SSH_HOST'] = $host;
-        $_SESSION['SSH_PORT'] = $port;
-        $_SESSION['SSH_USERNAME'] = $username;
-        $_SESSION['SSH_PASSWORD'] = $password;
-    }
-
-    function private_ssh_exec($commands) {
-        if (is_string($commands)) {
-            $commands = explode("\n", $commands);
-        }
-
-        $ssh = new SSH2('localhost', SSH_PORT);
-
-        $rsaPrivateKey = file_get_contents(SSH_RSA_PRIVATE_FILE);
-
-        if (empty($rsaPrivateKey)) {
-            exit("Cannot read private key file");
-        }
-
-        $key = new RSA();
-        $key->setPassword(SSH_RSA_PASSPHRASE);
-        $key->loadKey($rsaPrivateKey);
-
-        if (!$ssh->login(SSH_RSA_USERNAME, $key)) {
-            exit('SSH login failed');
-        }
-
-        $ssh->setWindowColumns(160);
-
-        $pty_required_commands = array('top', 'sudo', 'svn');
-
-        foreach ($commands as $command) {
-            $command = trim($command);
-
-            if (empty($command) || $command[0] == '#') {
-                continue;
-            }
-
-            $this->ssh_ensure_safe_command($command);
-
-            list($_command) = explode(' ', $command);
-
-            $require_pty = in_array($_command, $pty_required_commands);
-
-            if ($require_pty) {
-                $ssh->enablePTY();
-
-                $ssh->exec($command);
-
-                $ssh->setTimeout(100);
-
-                $output = $ssh->read();
-            } else {
-                $output = $ssh->exec($command);
-            }
-
-            $output = $this->ssh_getAugmentedOutput($output, $command);
-
-            echo $output;
-        }
-    }
-
-    function ssh_getAugmentedOutput($output, $command) {
-        return $output;
-    }
-
-    function ssh_exec_2($commands, $verbose = true) {
-        static $ssh = null;
-
-        if ($ssh === null) {
-            $requires = array(
-                'SSH_HOST',
-                'SSH_PORT',
-                'SSH_USERNAME',
-                'SSH_PASSWORD'
-            );
-
-            foreach ($requires as $name) {
-                if (empty($_SESSION[$name])) {
-                    $this->flush_line("[ERROR] $name is required\n", true);
-
-                    return;
-                }
-            }
-
-            $host = $_SESSION['SSH_HOST'];
-            $port = $_SESSION['SSH_PORT'];
-            $username = $_SESSION['SSH_USERNAME'];
-            $password = $_SESSION['SSH_PASSWORD'];
-
-            $ssh = new SSH2($host, $port);
-
-            if (!$ssh->login($username, $password)) {
-                exit('SSH login failed');
-            }
-
-            $ssh->setWindowColumns(160);
-        }
-
-        $command = is_array($commands)? implode(';', $commands) : $commands;
-
-        $pty_required_commands = array('top', 'sudo', 'svn');
-
-        list($_command) = explode(' ', $command);
-
-        $this->ssh_ensure_safe_command($command);
-
-        $require_pty = in_array($_command, $pty_required_commands);
-
-        if ($require_pty) {
-            $ssh->enablePTY();
-
-            $ssh->exec($command);
-
-            $ssh->setTimeout(100);
-
-            $output = $ssh->read();
-        } else {
-            $output = $ssh->exec($command);
-        }
-
-        $output = $this->ssh_getAugmentedOutput($output, $command);
-
-        if ($verbose) {
-            echo $output;
-        }
-
-        return $output;
-    }
+    function ssh_exec_2($commands, $verbose = true) { return $this->_sshService->sshExec2($commands, $verbose); }
 
     function standalone_editor() {
         $filename   = \CloudPad\Core\Request::getString('filename');
@@ -2997,6 +1908,76 @@ class Builder
         } else {
             $this->error("`$command_path` is not a valid plugin command");
         }
+    }
+
+    /**
+     * Run a git subcommand inside a given repository directory.
+     *
+     * @param  string  $repoDir  Absolute path to the git repo root (toplevel).
+     * @param  string  $subCmd   Git subcommand string (caller must escapeshellarg individual args).
+     * @param  string  &$output  Combined stdout+stderr output.
+     * @return bool              true on exit code 0, false otherwise.
+     */
+    function execGitCommand(string $repoDir, string $subCmd, string &$output = ''): bool {
+        $output   = '';
+        $lines    = [];
+        $exitCode = 0;
+        $cmd      = 'cd ' . escapeshellarg($repoDir) . ' && git ' . $subCmd . ' 2>&1';
+        exec($cmd, $lines, $exitCode);
+        $output = implode("\n", $lines);
+        return $exitCode === 0;
+    }
+
+    /**
+     * Return git metadata for a given absolute file/directory path.
+     *
+     * Return keys:
+     *   ok        => bool    — true when path is inside a git repo
+     *   toplevel  => string  — absolute repo root (no trailing slash)
+     *   relpath   => string  — path relative to toplevel
+     *   message   => string  — error description when ok === false
+     *
+     * @param  string $filepath  Absolute path (file may not exist yet).
+     * @return array
+     */
+    function get_git_info(string $filepath): array {
+        $empty = ['ok' => false, 'toplevel' => '', 'relpath' => '', 'message' => ''];
+
+        // Walk up to find an existing ancestor (file may have been deleted)
+        $probe = $filepath;
+        while (!file_exists($probe)) {
+            $parent = dirname($probe);
+            if ($parent === $probe) break;
+            $probe  = $parent;
+        }
+        if (!file_exists($probe)) {
+            return $empty + ['message' => 'Path not found: ' . $filepath];
+        }
+
+        $dir = is_dir($probe) ? $probe : dirname($probe);
+
+        $lines    = [];
+        $exitCode = 0;
+        exec('cd ' . escapeshellarg($dir) . ' && git rev-parse --show-toplevel 2>&1', $lines, $exitCode);
+        if ($exitCode !== 0) {
+            return $empty + ['message' => implode("\n", $lines)];
+        }
+
+        $toplevel = rtrim(str_replace('\\', '/', implode('', $lines)), '/');
+
+        // Compute relpath of original filepath (may not exist)
+        $absNorm = rtrim(str_replace('\\', '/', $filepath), '/');
+        $prefix  = $toplevel . '/';
+        $relpath = (strpos($absNorm, $prefix) === 0)
+            ? substr($absNorm, strlen($prefix))
+            : basename($filepath);
+
+        return [
+            'ok'       => true,
+            'toplevel' => $toplevel,
+            'relpath'  => $relpath,
+            'message'  => '',
+        ];
     }
 
 }
