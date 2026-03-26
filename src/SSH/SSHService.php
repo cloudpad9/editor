@@ -3,17 +3,24 @@ namespace CloudPad\SSH;
 
 class SSHService
 {
-    private \Builder $builder;
+    private \CloudPad\Core\Output\OutputManager $output;
+    private \CloudPad\Core\Process\ProcessManager $process;
+    private \CloudPad\Repository\RepositoryManagerInterface $repoManager;
 
-    public function __construct(\Builder $builder)
-    {
-        $this->builder = $builder;
+    public function __construct(
+        \CloudPad\Core\Output\OutputManager $output,
+        \CloudPad\Core\Process\ProcessManager $process,
+        \CloudPad\Repository\RepositoryManagerInterface $repoManager
+    ) {
+        $this->output      = $output;
+        $this->process     = $process;
+        $this->repoManager = $repoManager;
     }
 
     public function ensureSafeCommand(string $command): void
     {
         if (preg_match('/(rm|rmdir)\s+/i', $command) && !preg_match('/(svn delete)\s+/i', $command)) {
-            $this->builder->flush_line('[ERROR] Unsafe commands are not allowed. Please check again.', true);
+            $this->output->flushLine('[ERROR] Unsafe commands are not allowed. Please check again.', true);
             exit(-1);
         }
     }
@@ -29,7 +36,7 @@ class SSHService
 
         foreach ($requires as $name) {
             if (empty(\CloudPad\Core\Request::getString($name))) {
-                $this->builder->flush_line("[ERROR] $name is required\n", true);
+                $this->output->flushLine("[ERROR] $name is required\n", true);
                 return;
             }
         }
@@ -39,7 +46,7 @@ class SSHService
         $sshCommandNames = \CloudPad\Core\Request::getArray('SSH_COMMAND_NAMES');
 
         if (empty($sshCommandNames) && empty($sshCommand) && empty($sshCommands)) {
-            $this->builder->flush_line("[ERROR] Please specify a command\n", true);
+            $this->output->flushLine("[ERROR] Please specify a command\n", true);
             return;
         }
 
@@ -49,7 +56,7 @@ class SSHService
         $password = \CloudPad\Core\Request::getString('SSH_PASSWORD');
 
         $actualCommands = [];
-        $shellCommands  = $this->builder->getFrequentUsedShellCommands();
+        $shellCommands  = $this->getFrequentUsedShellCommands();
 
         if ($execBuiltin && !empty($sshCommandNames)) {
             foreach ($sshCommandNames as $name) {
@@ -177,7 +184,7 @@ class SSHService
 
             foreach ($requires as $name) {
                 if (empty($_SESSION[$name])) {
-                    $this->builder->flush_line("[ERROR] $name is required\n", true);
+                    $this->output->flushLine("[ERROR] $name is required\n", true);
                     return '';
                 }
             }
@@ -219,12 +226,12 @@ class SSHService
     public function executeLinux(string $cmd, bool $checkCmd = true): mixed
     {
         if ($checkCmd && preg_match('/(delete|del|rm)\s/is', $cmd)) {
-            $this->builder->flush_line("[ERROR] Command not allowed.\n", true);
+            $this->output->flushLine("[ERROR] Command not allowed.\n", true);
             return false;
         }
 
         $cwd = $_SESSION['cwd'] ?? '';
-        $res = $this->builder->exec($cmd, $cwd);
+        $res = $this->process->exec($cmd, $cwd);
 
         if (preg_match('/^cd (.+)/is', $cmd, $match)) {
             if (!empty($cwd)) {
@@ -242,5 +249,14 @@ class SSHService
         echo "[$cwd]#<br/>";
 
         return $res;
+    }
+
+    private function getFrequentUsedShellCommands(): array
+    {
+        $repository = \CloudPad\Core\Request::getString('repository');
+        if (empty($repository)) return [];
+        $settings = $this->repoManager->getRepositorySettings($repository);
+        if (empty($settings) || empty($settings['handler'])) return [];
+        return $settings['handler']->getRepositoryOperations($settings);
     }
 }

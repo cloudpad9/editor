@@ -701,7 +701,7 @@
 
                         axios({
                             method: 'post',
-                            url: 'index2.php?action=move-files' + '&paths=' + paths + '&to=' + node.path + '&repository=' + node.repository + '&verbose=0&ajax=1'
+                            url: 'index2.php?action=file-transfer' + '&operation=move&paths=' + paths + '&to=' + node.path + '&repository=' + node.repository + '&verbose=0&ajax=1'
                         }).then(({data}) => {
                             if (data.message) {
                                 window.showMessage(data.message)
@@ -724,7 +724,7 @@
 
                     axios({
                         method: 'post',
-                        url: 'index2.php?action=copy-files' + '&paths=' + paths + '&to=' + node.path + '&repository=' + node.repository + '&verbose=0&ajax=1'
+                        url: 'index2.php?action=file-transfer' + '&operation=copy&paths=' + paths + '&to=' + node.path + '&repository=' + node.repository + '&verbose=0&ajax=1'
                     }).then(({data}) => {
                         if (data.message) {
                             window.showMessage(data.message)

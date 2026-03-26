@@ -1,15 +1,43 @@
 <?php
 namespace CloudPad\Repository;
 
-class RepositoryManager
-{
-    private \Builder $builder;
-    private string $appDir;
+use CloudPad\Core\Output\OutputManager;
+use CloudPad\FileSystem\FileOperationsInterface;
+use CloudPad\Search\FileSearchServiceInterface;
 
-    public function __construct(\Builder $builder, string $appDir)
-    {
-        $this->builder = $builder;
-        $this->appDir  = $appDir;
+/**
+ * RepositoryManager — Repository settings, path resolution, file index.
+ *
+ * Phase 10: Loại bỏ Builder → inject OutputManager, FileOperationsInterface,
+ * FileSearchServiceInterface, và callback `has_plugin_fs`.
+ * Implements RepositoryManagerInterface.
+ */
+class RepositoryManager implements RepositoryManagerInterface
+{
+    private OutputManager $output;
+    private FileOperationsInterface $fileOps;
+    private FileSearchServiceInterface $fileSearch;
+    private string $appDir;
+    /** @var callable */
+    private $pluginFsLoader;
+
+    /**
+     * @param callable $pluginFsLoader  fn(string $fs, &$handler): bool
+     *   Callback để load plugin_fs_* instances (còn ở Builder::has_plugin_fs).
+     *   Sẽ được loại bỏ hoàn toàn ở Phase 10.5 khi PluginManager được tách ra.
+     */
+    public function __construct(
+        OutputManager            $output,
+        FileOperationsInterface  $fileOps,
+        FileSearchServiceInterface $fileSearch,
+        string                   $appDir,
+        callable                 $pluginFsLoader
+    ) {
+        $this->output         = $output;
+        $this->fileOps        = $fileOps;
+        $this->fileSearch     = $fileSearch;
+        $this->appDir         = $appDir;
+        $this->pluginFsLoader = $pluginFsLoader;
     }
 
     // ── Repository list ───────────────────────────────────────────────────────
@@ -22,35 +50,29 @@ class RepositoryManager
     public function getRepositories(): array
     {
         static $repositories = null;
+        if ($repositories !== null) return $repositories;
 
-        if ($repositories === null) {
-            $all  = $this->getRepositoriesFromFile();
-            $repos = $_SESSION['builder.user']['repositories'];
-            $repositories = [];
+        $all          = $this->getRepositoriesFromFile();
+        $userRepos    = $_SESSION['builder.user']['repositories'] ?? [];
+        $repositories = [];
 
-            foreach ($repos as $repo) {
-                if (!isset($all[$repo])) {
-                    continue;
-                }
+        foreach ($userRepos as $repo) {
+            if (!isset($all[$repo])) continue;
 
-                $settings = $all[$repo];
-                $handler  = $this->getRepositoryHandler($settings);
+            $settings = $all[$repo];
+            $handler  = $this->getRepositoryHandler($settings);
 
-                if (empty($handler)) {
-                    $this->builder->error("Cannot get handler of repository '" . $settings['name'] . "'");
-                    continue;
-                }
-
-                if (!$handler->isAccessible($settings)) {
-                    continue;
-                }
-
-                $handler->init($settings);
-                $settings['handler'] = $handler;
-
-                $realrepo = $settings['code'] ?? $repo;
-                $repositories[$realrepo] = $settings;
+            if (empty($handler)) {
+                $this->output->verbose("[ERROR] Cannot get handler of repository '" . ($settings['name'] ?? $repo) . "'");
+                continue;
             }
+            if (!$handler->isAccessible($settings)) continue;
+
+            $handler->init($settings);
+            $settings['handler'] = $handler;
+
+            $realrepo              = $settings['code'] ?? $repo;
+            $repositories[$realrepo] = $settings;
         }
 
         return $repositories;
@@ -59,60 +81,41 @@ class RepositoryManager
     public function getRepositorySettings(string $repository): ?array
     {
         static $cache = [];
-
-        if ($repository === '*') {
-            return [];
-        }
-
-        if (isset($cache[$repository])) {
-            return $cache[$repository];
-        }
+        if ($repository === '*') return [];
+        if (isset($cache[$repository])) return $cache[$repository];
 
         $repositories = $this->getRepositories();
-
         if (!isset($repositories[$repository])) {
-            $this->builder->verbose("[ERROR] Repository '$repository' is not found");
+            $this->output->verbose("[ERROR] Repository '$repository' is not found");
             return null;
         }
 
         $cache[$repository] = $repositories[$repository];
-
         return $cache[$repository];
     }
 
     public function hasRepositoryPermission(string $repository): bool
     {
-        if (empty($repository)) {
-            return true;
-        }
-
-        $repositories = $this->getRepositories();
-
-        return isset($repositories[$repository]);
+        if (empty($repository)) return true;
+        return isset($this->getRepositories()[$repository]);
     }
-
-    // ── Repository handlers ───────────────────────────────────────────────────
 
     public function getRepositoryHandler(array $settings): ?object
     {
-        $fs = $settings['type'] ?? 'local';
-
-        if ($this->builder->has_plugin_fs($fs, $handler)) {
+        $fs      = $settings['type'] ?? 'local';
+        $handler = null;
+        if (($this->pluginFsLoader)($fs, $handler)) {
             return $handler;
         }
-
         return null;
     }
 
     // ── Path resolution ───────────────────────────────────────────────────────
 
-    /**
-     * Resolve `<branch>://<relpath>` or plain path against repository dirs.
-     */
     public function getAbsolutePath(string $path, string $repository): string
     {
         $settings = $this->getRepositorySettings($repository);
-        $dirs     = $settings['dirs'];
+        $dirs     = $settings['dirs'] ?? [];
         $branch   = '';
 
         if (preg_match('/^([0-9]+):\/\/(.*)/', trim($path), $match)) {
@@ -124,17 +127,13 @@ class RepositoryManager
 
         if (!empty($branch)) {
             $branchDir = $dirs[$branch - 1] ?? '';
-
             if (!empty($branchDir) && is_dir($branchDir)) {
                 return rtrim($branchDir, '/') . '/' . $path;
             }
         } else {
             foreach ($dirs as $dir) {
                 $dir = rtrim($dir, '/');
-
-                if (file_exists($dir . '/' . $path)) {
-                    return $dir . '/' . $path;
-                }
+                if (file_exists($dir . '/' . $path)) return $dir . '/' . $path;
             }
         }
 
@@ -143,15 +142,14 @@ class RepositoryManager
 
     public function getAbsoluteFilePath(string $filename, string $repository): string
     {
-        $filepath    = $_SESSION['filepaths'][$repository][$filename] ?? '';
-        $isTempFile  = ($filename[0] === '*');
+        $filepath   = $_SESSION['filepaths'][$repository][$filename] ?? '';
+        $isTempFile = !empty($filename) && $filename[0] === '*';
 
         if (!empty($filepath) && !$isTempFile && basename($filename) !== basename($filepath)) {
-            $filepath = null;
+            $filepath = '';
         }
 
         $branch = '';
-
         if (preg_match('/^([0-9]+):\/\/(.*)/', trim($filename), $match)) {
             $branch   = $match[1];
             $filename = $match[2];
@@ -161,24 +159,20 @@ class RepositoryManager
             $settings  = $this->getRepositorySettings($repository);
             $dirs      = $settings['dirs'] ?? [];
             $branchDir = $dirs[$branch - 1] ?? '';
-
             if (!empty($branchDir) && is_dir($branchDir)) {
                 return rtrim($branchDir, '/') . '/' . $filename;
             }
         }
 
         if (empty($filepath)) {
-            $filepath = $this->builder->searchForFile($filename, $repository);
+            $filepath = $this->fileSearch->searchForFile($filename, $repository);
         }
 
         if (empty($filepath)) {
             $settings = $this->getRepositorySettings($repository);
             $dirs     = $settings['dirs'] ?? [];
-
             foreach ($dirs as $dir) {
-                if (file_exists($dir . '/' . $filename)) {
-                    return $dir . '/' . $filename;
-                }
+                if (file_exists($dir . '/' . $filename)) return $dir . '/' . $filename;
             }
         }
 
@@ -187,18 +181,13 @@ class RepositoryManager
 
     public function getRepositoryWisePath(string $filepath, string $repository, string $filename): string
     {
-        if (empty($repository)) {
-            return $filename;
-        }
+        if (empty($repository)) return $filename;
 
         $settings = $this->getRepositorySettings($repository);
         $dirs     = $settings['dirs'] ?? [];
 
         foreach ($dirs as $index => $dir) {
-            if (stripos($filepath, $dir) !== 0) {
-                continue;
-            }
-
+            if (stripos($filepath, $dir) !== 0) continue;
             $filepath = str_replace(rtrim($dir, '/') . '/', ($index + 1) . '://', $filepath);
             break;
         }
@@ -208,22 +197,13 @@ class RepositoryManager
 
     public function getFileRepository(string $filepath): string
     {
-        $repositories = $this->getRepositories();
-
-        foreach ($repositories as $repository => $settings) {
+        foreach ($this->getRepositories() as $repository => $settings) {
             foreach ($settings['dirs'] as $dir) {
-                if (stripos($filepath, $dir) !== 0) {
-                    continue;
-                }
-
+                if (stripos($filepath, $dir) !== 0) continue;
                 $filepaths = $this->getRepositoryFilePaths($repository, false);
-
-                if (in_array($filepath, $filepaths)) {
-                    return $repository;
-                }
+                if (in_array($filepath, $filepaths)) return $repository;
             }
         }
-
         return '';
     }
 
@@ -232,20 +212,17 @@ class RepositoryManager
     public function getRepositoryCacheFile(string $repository): string
     {
         $settings  = $this->getRepositorySettings($repository);
-        $dirs      = $settings['dirs'];
+        $dirs      = $settings['dirs'] ?? [];
         $signature = md5($repository . implode(',', $dirs));
-
         return $this->appDir . '/cache/' . $signature;
     }
 
     public function getRepositoryFilePaths(string $repository, bool $forceRebuild = false): array
     {
-        if (!$this->hasRepositoryPermission($repository)) {
-            return [];
-        }
+        if (!$this->hasRepositoryPermission($repository)) return [];
 
-        $settings = $this->getRepositorySettings($repository);
-        $dirs     = $settings['dirs'];
+        $settings  = $this->getRepositorySettings($repository);
+        $dirs      = $settings['dirs'] ?? [];
         $cachefile = $this->appDir . '/cache/' . md5($repository . implode(',', $dirs));
 
         if (!file_exists($cachefile) || $forceRebuild) {
@@ -257,20 +234,16 @@ class RepositoryManager
 
     public function getProjectFilePaths(string $repository, bool $forceRebuild = false): array
     {
-        if (!$this->hasRepositoryPermission($repository)) {
-            return [];
-        }
+        if (!$this->hasRepositoryPermission($repository)) return [];
 
-        $settings  = $this->getRepositorySettings($repository);
-        $dirs      = $settings['dirs'];
-        $excludes  = $settings['excludes'] ?? [];
-        $includes  = $settings['includes'] ?? [];
+        $settings = $this->getRepositorySettings($repository);
+        $dirs     = $settings['dirs']     ?? [];
+        $excludes = $settings['excludes'] ?? [];
+        $includes = $settings['includes'] ?? [];
 
         $filepaths = [];
-
         foreach ($dirs as $dir) {
-            $paths     = $this->builder->rsearch($dir, $excludes, $includes);
-            $filepaths = array_merge($filepaths, $paths);
+            $filepaths = array_merge($filepaths, $this->fileSearch->rsearch($dir, $excludes, $includes));
         }
 
         return $filepaths;
@@ -278,28 +251,19 @@ class RepositoryManager
 
     // ── SFTP ──────────────────────────────────────────────────────────────────
 
-    public function getSftpPrefix(
-        string $host,
-        int    $port,
-        string $username,
-        string $password,
-        mixed  &$sftp
-    ): string {
+    public function getSftpPrefix(string $host, int $port, string $username, string $password, mixed &$sftp): string
+    {
         $connection = ssh2_connect($host, $port);
-
         if (!$connection) {
-            $this->builder->verbose("[ERROR] Cannot connect to the SFTP server --> $host:$port");
+            $this->output->verbose("[ERROR] Cannot connect to the SFTP server --> $host:$port");
             return '';
         }
-
         if (!ssh2_auth_password($connection, $username, $password)) {
-            $this->builder->verbose('[ERROR] Cannot authenticate with the SFTP server using username/password');
+            $this->output->verbose('[ERROR] Cannot authenticate with the SFTP server using username/password');
             return '';
         }
-
         $sftp    = ssh2_sftp($connection);
         $sftp_fd = intval($sftp);
-
         return 'ssh2.sftp://' . $sftp_fd;
     }
 
@@ -310,16 +274,17 @@ class RepositoryManager
         $rustBinary = $this->appDir . '/bin/rust/rebuild-indexes/target/release/rebuild-indexes';
 
         if (!is_file($rustBinary)) {
-            $this->builder->error('Rebuild binary not found. Please build the Rust binary first.');
+            \CloudPad\Core\Response::fail('Rebuild binary not found. Please build the Rust binary first.');
         }
 
-        $escapedDirs = array_map('escapeshellarg', $dirs);
-        $command     = escapeshellarg($rustBinary) . ' ' . implode(' ', $escapedDirs) . ' ' . escapeshellarg($outputFile);
+        $command = escapeshellarg($rustBinary)
+            . ' ' . implode(' ', array_map('escapeshellarg', $dirs))
+            . ' ' . escapeshellarg($outputFile);
 
-        $this->builder->try_exec($command, $error);
+        $this->fileOps->tryExec($command, $error);
 
         if (!empty($error)) {
-            $this->builder->error($error);
+            \CloudPad\Core\Response::fail($error);
         }
     }
 }

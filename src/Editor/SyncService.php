@@ -3,16 +3,20 @@ namespace CloudPad\Editor;
 
 class SyncService
 {
-    private \Builder $builder;
+    private \CloudPad\Repository\RepositoryManagerInterface $repoManager;
+    private \CloudPad\FileSystem\FileOperationsInterface $fileOps;
 
-    public function __construct(\Builder $builder)
-    {
-        $this->builder = $builder;
+    public function __construct(
+        \CloudPad\Repository\RepositoryManagerInterface $repoManager,
+        \CloudPad\FileSystem\FileOperationsInterface $fileOps
+    ) {
+        $this->repoManager = $repoManager;
+        $this->fileOps     = $fileOps;
     }
 
     public function syncFile(string $filename, string $repository, bool $revert = false): void
     {
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (empty($filepath) || !file_exists($filepath)) {
             \CloudPad\Core\Response::fail('Source file not found.');
@@ -33,9 +37,9 @@ class SyncService
                 [$filepath, $syncDest] = [$syncDest, $filepath];
             }
 
-            $content = $this->builder->file_get_contents($filepath, $repository);
+            $content = $this->fileOps->fileGetContents($filepath, $repository);
 
-            if ($this->builder->file_put_contents($syncDest, $content, '', $message)) {
+            if ($this->fileOps->filePutContents($syncDest, $content, '', $message)) {
                 $message = 'File synced.';
             } else {
                 $message = "Sync failed. $message";
@@ -49,11 +53,11 @@ class SyncService
 
     public function getSyncDest(string $filepath): string
     {
-        $repository  = $this->builder->getFileRepository($filepath);
+        $repository  = $this->repoManager->getFileRepository($filepath);
         $sync_routes = [];
 
         if (!empty($repository)) {
-            $settings = $this->builder->getRepositorySettings($repository);
+            $settings = $this->repoManager->getRepositorySettings($repository);
 
             if (isset($settings['sync']) && !empty($settings['sync'])) {
                 $sync_routes = $settings['sync'];

@@ -3,38 +3,45 @@ namespace CloudPad\Editor;
 
 class RevisionManager
 {
-    private \Builder $builder;
+    private \CloudPad\Auth\AuthServiceInterface $auth;
+    private \CloudPad\FileSystem\FileOperationsInterface $fileOps;
+    private \CloudPad\Repository\RepositoryManagerInterface $repoManager;
 
-    public function __construct(\Builder $builder)
-    {
-        $this->builder = $builder;
+    public function __construct(
+        \CloudPad\Auth\AuthServiceInterface $auth,
+        \CloudPad\FileSystem\FileOperationsInterface $fileOps,
+        \CloudPad\Repository\RepositoryManagerInterface $repoManager
+    ) {
+        $this->auth        = $auth;
+        $this->fileOps     = $fileOps;
+        $this->repoManager = $repoManager;
     }
 
     // ── Save revisions ────────────────────────────────────────────────────────
 
     public function saveFileRevision(string $filepath, string $content): void
     {
-        $dir      = $this->builder->getUserRevisionDir();
+        $dir      = $this->auth->getUserRevisionDir();
         $prefix   = $this->getRevisionPrefix($filepath);
         $revcount = $this->getRevisionCount($dir, $prefix);
         $revfile  = $dir . '/' . $prefix . '.' . $revcount;
         $newfile  = $dir . '/' . $prefix . '.' . ($revcount + 1);
 
-        if (!file_exists($revfile) || $content != $this->builder->file_get_contents($revfile)) {
-            $this->builder->file_put_contents($newfile, $content);
+        if (!file_exists($revfile) || $content != $this->fileOps->fileGetContents($revfile)) {
+            $this->fileOps->filePutContents($newfile, $content);
         }
     }
 
     public function createTempRevision(string $filepath, string $content): void
     {
-        $dir      = $this->builder->getUserTempRevisionDir();
+        $dir      = $this->auth->getUserTempRevisionDir();
         $prefix   = $this->getRevisionPrefix($filepath);
         $revcount = $this->getRevisionCount($dir, $prefix);
         $revfile  = $dir . '/' . $prefix . '.' . $revcount;
         $newfile  = $dir . '/' . $prefix . '.' . ($revcount + 1);
 
-        if (!file_exists($revfile) || $content != $this->builder->file_get_contents($revfile)) {
-            $this->builder->file_put_contents($newfile, $content);
+        if (!file_exists($revfile) || $content != $this->fileOps->fileGetContents($revfile)) {
+            $this->fileOps->filePutContents($newfile, $content);
         }
     }
 
@@ -79,7 +86,7 @@ class RevisionManager
 
     public function getLatestRevisionContent(string $filepath): ?string
     {
-        $dir      = $this->builder->getUserRevisionDir();
+        $dir      = $this->auth->getUserRevisionDir();
         $prefix   = $this->getRevisionPrefix($filepath);
         $revcount = $this->getRevisionCount($dir, $prefix);
 
@@ -93,7 +100,7 @@ class RevisionManager
             return null;
         }
 
-        $content = $this->builder->file_get_contents($revfile);
+        $content = $this->fileOps->fileGetContents($revfile);
         unlink($revfile);
 
         return $content;
@@ -101,7 +108,7 @@ class RevisionManager
 
     public function getLatestTempRevisionContent(string $filepath): ?string
     {
-        $dir      = $this->builder->getUserTempRevisionDir();
+        $dir      = $this->auth->getUserTempRevisionDir();
         $prefix   = $this->getRevisionPrefix($filepath);
         $revcount = $this->getRevisionCount($dir, $prefix);
 
@@ -115,14 +122,14 @@ class RevisionManager
             return null;
         }
 
-        return $this->builder->file_get_contents($revfile);
+        return $this->fileOps->fileGetContents($revfile);
     }
 
     // ── File-level actions (delegate response) ────────────────────────────────
 
     public function revertFile(string $filename, string $repository): void
     {
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (empty($filepath)) {
             \CloudPad\Core\Response::fail('Source file not found.');
@@ -134,7 +141,7 @@ class RevisionManager
             \CloudPad\Core\Response::fail('File revisions not found.');
         }
 
-        $this->builder->file_put_contents($filepath, $content);
+        $this->fileOps->filePutContents($filepath, $content);
 
         \CloudPad\Core\Response::ok([
             'content'    => $content,
@@ -145,7 +152,7 @@ class RevisionManager
 
     public function recoverFile(string $filename, string $repository): void
     {
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (empty($filepath)) {
             \CloudPad\Core\Response::fail('Source file not found.');
@@ -157,7 +164,7 @@ class RevisionManager
             \CloudPad\Core\Response::fail('File revisions not found.');
         }
 
-        $this->builder->file_put_contents($filepath, $content);
+        $this->fileOps->filePutContents($filepath, $content);
 
         \CloudPad\Core\Response::ok([
             'content'    => $content,
@@ -168,13 +175,13 @@ class RevisionManager
 
     public function reloadFile(string $filename, string $repository): void
     {
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (empty($filepath)) {
             \CloudPad\Core\Response::fail('Source file not found.');
         }
 
-        $content = $this->builder->file_get_contents($filepath, $repository);
+        $content = $this->fileOps->fileGetContents($filepath, $repository);
 
         \CloudPad\Core\Response::ok([
             'content'    => $content,

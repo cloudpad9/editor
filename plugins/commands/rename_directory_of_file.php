@@ -1,40 +1,40 @@
 <?php
+use CloudPad\Core\Exceptions\NotFoundException;
+use CloudPad\Core\Exceptions\ValidationException;
+use CloudPad\Core\Exceptions\FileSystemException;
+
+/**
+ * rename_directory_of_file — Đổi tên thư mục chứa file đang mở.
+ * Phase 6.3: Response::json(fail) → throw exceptions
+ */
 function rename_directory_of_file($builder) {
-    $filename = \CloudPad\Core\Request::getString('filename');
+    $filename   = \CloudPad\Core\Request::getString('filename');
     $repository = \CloudPad\Core\Request::getString('repository');
-    $newname = \CloudPad\Core\Request::getString('newname');
+    $newname    = \CloudPad\Core\Request::getString('newname');
 
     $filepath = $builder->getAbsoluteFilePath($filename, $repository);
-
     if (empty($filepath)) {
-        \CloudPad\Core\Response::json(array('success' => false, 'message' => 'Source file not found.'));
-
-        return;
+        throw new NotFoundException('Source file not found.');
     }
 
-    $filename = basename($filepath);
-    $directoryPath = dirname($filepath);
-    $newDirectoryPath = dirname($directoryPath).'/'.$newname;
-    $newFilePath = $newDirectoryPath.'/'.$filename;
+    $fileBasename     = basename($filepath);
+    $directoryPath    = dirname($filepath);
+    $newDirectoryPath = dirname($directoryPath) . '/' . $newname;
+    $newFilePath      = $newDirectoryPath . '/' . $fileBasename;
 
     if (file_exists($newDirectoryPath)) {
-        \CloudPad\Core\Response::json(array('success' => false, 'message' => "Destination directory '$newname' already exists."));
-
-        return;
+        throw new ValidationException("Destination directory '$newname' already exists.");
     }
 
     if (!rename($directoryPath, $newDirectoryPath)) {
-        \CloudPad\Core\Response::json(array('success' => false, 'message' => "Cannot rename"));
-
-        return;
+        throw new FileSystemException('Cannot rename directory.');
     }
 
-    $rpath = $builder->getRepositoryWisePath($newFilePath, $repository, $filename);
-
+    $rpath = $builder->getRepositoryWisePath($newFilePath, $repository, $fileBasename);
     $builder->setFilePath($rpath, $newFilePath, $repository);
     $builder->addToRepositoryFilePaths($newFilePath, $repository);
 
     $content = $builder->file_get_contents($newFilePath, $repository);
 
-    \CloudPad\Core\Response::json(array('success' => true, 'content' => $content, 'filename' => $rpath, 'repository' => $repository));
+    json_ok(['content' => $content, 'filename' => $rpath, 'repository' => $repository]);
 }

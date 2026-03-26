@@ -1,27 +1,32 @@
 <?php
+use CloudPad\Core\Exceptions\NotFoundException;
+use CloudPad\Core\Exceptions\FileSystemException;
+
+/**
+ * delete_file — Xoá file/thư mục trong repository.
+ * Phase 6.3: $builder->json_response() → throw exceptions
+ */
 function delete_file($builder) {
-    $path = \CloudPad\Core\Request::getString('path');
+    $path       = \CloudPad\Core\Request::getString('path');
     $repository = \CloudPad\Core\Request::getString('repository');
 
     $filepath = $builder->getAbsolutePath($path, $repository);
 
     if (empty($filepath)) {
-        $builder->json_response(array('success' => false, 'message' => 'Source file not found.'));
+        throw new NotFoundException('Source file not found.');
     }
 
     ob_start();
-
     $builder->try_exec('unlink ' . escapeshellarg($filepath));
-
     $output = ob_get_clean();
 
     if (!empty($output)) {
-        $builder->json_response(array('success' => false, 'message' => $output));
+        throw new FileSystemException($output);
     }
 
     if (file_exists($filepath)) {
-        $builder->json_response(array('success' => false, 'message' => "Operation failed"));
+        throw new FileSystemException('Operation failed.');
     }
 
-    $builder->json_response(array('success' => true));
+    json_ok();
 }

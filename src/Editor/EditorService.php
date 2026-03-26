@@ -18,14 +18,32 @@ namespace CloudPad\Editor;
  *
  * Pattern: Builder giữ thin wrappers, delegate sang đây.
  */
-class EditorService
+class EditorService implements EditorServiceInterface
 {
-    /** @var \Builder */
-    private $builder;
+    private \CloudPad\Repository\RepositoryManagerInterface  $repoManager;
+    private \CloudPad\FileSystem\FileOperationsInterface      $fileOps;
+    private \CloudPad\Search\FileSearchServiceInterface       $fileSearch;
+    private \CloudPad\Auth\AuthServiceInterface               $auth;
+    private \CloudPad\Editor\ColorManager                     $colorManager;
+    private \CloudPad\Editor\RevisionManager                  $revisionManager;
+    private \CloudPad\Core\Output\OutputManager               $output;
 
-    public function __construct(\Builder $builder)
-    {
-        $this->builder = $builder;
+    public function __construct(
+        \CloudPad\Repository\RepositoryManagerInterface  $repoManager,
+        \CloudPad\FileSystem\FileOperationsInterface      $fileOps,
+        \CloudPad\Search\FileSearchServiceInterface       $fileSearch,
+        \CloudPad\Auth\AuthServiceInterface               $auth,
+        \CloudPad\Editor\ColorManager                     $colorManager,
+        \CloudPad\Editor\RevisionManager                  $revisionManager,
+        \CloudPad\Core\Output\OutputManager               $output
+    ) {
+        $this->repoManager     = $repoManager;
+        $this->fileOps         = $fileOps;
+        $this->fileSearch      = $fileSearch;
+        $this->auth            = $auth;
+        $this->colorManager    = $colorManager;
+        $this->revisionManager = $revisionManager;
+        $this->output          = $output;
     }
 
     // ── File open / navigation ────────────────────────────────────────────────
@@ -37,7 +55,7 @@ class EditorService
     {
         global $ajax;
 
-        $filepath = $this->builder->searchForFile($filename, $repository);
+        $filepath = $this->fileSearch->searchForFile($filename, $repository);
 
         if (empty($filepath)) {
             \CloudPad\Core\Response::json(['success' => false, 'message' => "File not found: $filename"]);
@@ -47,9 +65,9 @@ class EditorService
         $this->setFilePath($filename, $filepath, $repository);
 
         if ($ajax) {
-            $content = $this->builder->file_get_contents($filepath, $repository);
-            $color   = $this->builder->get_color($filepath);
-            $rpath   = $this->builder->getRepositoryWisePath($filepath, $repository, $filename);
+            $content = $this->fileOps->fileGetContents($filepath, $repository);
+            $color   = $this->colorManager->getColor($filepath);
+            $rpath   = $this->repoManager->getRepositoryWisePath($filepath, $repository, $filename);
 
             \CloudPad\Core\Response::json([
                 'success'    => true,
@@ -67,7 +85,7 @@ class EditorService
     public function getDirectoryChildren(string $repository, string $path): void
     {
         $children = [];
-        $settings = $this->builder->getRepositorySettings($repository);
+        $settings = $this->repoManager->getRepositorySettings($repository);
         $dirs     = $settings['dirs'];
 
         $branch = '';
@@ -135,10 +153,10 @@ class EditorService
      */
     public function getDirectoryStructure(string $repository): void
     {
-        $settings = $this->builder->getRepositorySettings($repository);
+        $settings = $this->repoManager->getRepositorySettings($repository);
         $dirs     = $settings['dirs'];
 
-        $filepaths = $this->builder->getRepositoryFilePaths($repository, false);
+        $filepaths = $this->repoManager->getRepositoryFilePaths($repository, false);
 
         foreach ($dirs as $dir) {
             foreach ($filepaths as &$filepath) {
@@ -204,7 +222,7 @@ class EditorService
      */
     public function fileLiveSearch(string $repository, string $filename): void
     {
-        $settings = $this->builder->getRepositorySettings($repository);
+        $settings = $this->repoManager->getRepositorySettings($repository);
         $dirs     = $settings['dirs'];
 
         if (!empty($filename) && $filename[0] === '/' && file_exists($filename)) {
@@ -212,13 +230,13 @@ class EditorService
         } else {
             $recentfilepaths = $_SESSION['recentfilepaths'][$repository] ?? [];
             $filepaths_1     = !empty($recentfilepaths)
-                ? $this->builder->searchForFilesInArray($filename, $recentfilepaths, 20)
+                ? $this->fileSearch->searchForFilesInArray($filename, $recentfilepaths, 20)
                 : [];
 
             if (strlen($filename) < 3 && !empty($filepaths_1)) {
                 $filepaths = $filepaths_1;
             } else {
-                $filepaths_2 = $this->builder->searchForFiles($filename, $repository, 20);
+                $filepaths_2 = $this->fileSearch->searchForFiles($filename, $repository, 20);
                 $filepaths   = array_merge($filepaths_1, $filepaths_2);
             }
         }
@@ -253,19 +271,19 @@ class EditorService
      */
     public function getFileContent(string $filename, string $repository = ''): void
     {
-        if (!$this->builder->hasRepositoryPermission($repository)) {
+        if (!$this->repoManager->hasRepositoryPermission($repository)) {
             \CloudPad\Core\Response::json(['success' => false, 'message' => "File not found: $filename"]);
             return;
         }
 
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (!empty($filepath)) {
             $this->setFilePath($filename, $filepath, $repository);
 
-            $content = $this->builder->file_get_contents($filepath, $repository);
-            $color   = $this->builder->get_color($filepath);
-            $rpath   = $this->builder->getRepositoryWisePath($filepath, $repository, $filename);
+            $content = $this->fileOps->fileGetContents($filepath, $repository);
+            $color   = $this->colorManager->getColor($filepath);
+            $rpath   = $this->repoManager->getRepositoryWisePath($filepath, $repository, $filename);
 
             \CloudPad\Core\Response::json([
                 'success'    => true,
@@ -309,8 +327,8 @@ class EditorService
      */
     public function getUserUploadFiles(): array
     {
-        $dir   = $this->builder->getUserUploadDir();
-        $paths = $this->builder->rsearch($dir);
+        $dir   = $this->auth->getUserUploadDir();
+        $paths = $this->fileSearch->rsearch($dir);
 
         foreach ($paths as $i => $path) {
             $paths[$i] = basename($path);
@@ -328,20 +346,20 @@ class EditorService
         $is_custom_dir = !empty($uploaddir) && is_dir($uploaddir);
 
         if (!$is_custom_dir) {
-            $uploaddir = $this->builder->getUserUploadDir();
+            $uploaddir = $this->auth->getUserUploadDir();
         } else {
             $_SESSION['files.upload.directory'] = $uploaddir;
         }
 
         if (!is_writable($uploaddir)) {
-            $this->builder->error('Upload directory is not writable');
+            \CloudPad\Core\Response::fail('Upload directory is not writable');
         }
 
         foreach ($_FILES as $file) {
             $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
 
             if (!preg_match('/^(rar|zip|exe|pdf|doc|docx|html|xml|xls|xlsx|csv|svg|png|gif|jpg|json|mp4|webp)$/is', $ext)) {
-                $this->builder->error("Uploading `.$ext' files is not allowed");
+                \CloudPad\Core\Response::fail("Uploading `.$ext' files is not allowed");
             }
 
             if (move_uploaded_file($file['tmp_name'], $uploaddir . '/' . basename($file['name']))) {
@@ -363,25 +381,25 @@ class EditorService
         $filename = basename(ltrim($filename, '/'));
 
         if (empty($filename)) {
-            $this->builder->error('Invalid file name.');
+            \CloudPad\Core\Response::fail('Invalid file name.');
         }
 
-        $dir      = $this->builder->getUserUploadDir();
+        $dir      = $this->auth->getUserUploadDir();
         $file     = $dir . '/' . $filename;
         $realFile = realpath($file);
         $realDir  = realpath($dir);
 
         if ($realFile === false || strncmp($realFile, $realDir . '/', strlen($realDir) + 1) !== 0) {
-            $this->builder->error("File unreadable: $filename");
+            \CloudPad\Core\Response::fail("File unreadable: $filename");
         }
 
         if (!is_file($realFile)) {
-            $this->builder->error("File not found: $filename");
+            \CloudPad\Core\Response::fail("File not found: $filename");
         }
 
         $ext = pathinfo($realFile, PATHINFO_EXTENSION);
         if (!preg_match('/^(rar|zip|exe|pdf|doc|docx|xml|xls|xlsx|html|csv|svg|png|gif|jpg|gz|sql|mp4|webp)$/is', $ext)) {
-            $this->builder->error("Downloading `.$ext' files is not allowed");
+            \CloudPad\Core\Response::fail("Downloading `.$ext' files is not allowed");
         }
 
         \CloudPad\Core\Response::download($realFile, $filename);
@@ -395,20 +413,20 @@ class EditorService
         $filename = basename(ltrim($filename, '/'));
 
         if (empty($filename)) {
-            $this->builder->error('Invalid file name.');
+            \CloudPad\Core\Response::fail('Invalid file name.');
         }
 
-        $dir      = $this->builder->getUserUploadDir();
+        $dir      = $this->auth->getUserUploadDir();
         $file     = $dir . '/' . $filename;
         $realFile = realpath($file);
         $realDir  = realpath($dir);
 
         if ($realFile === false || strncmp($realFile, $realDir . '/', strlen($realDir) + 1) !== 0) {
-            $this->builder->error("Access denied: $filename");
+            \CloudPad\Core\Response::fail("Access denied: $filename");
         }
 
         if (!is_file($realFile)) {
-            $this->builder->error("File not found: $filename");
+            \CloudPad\Core\Response::fail("File not found: $filename");
         }
 
         unlink($realFile);
@@ -422,7 +440,7 @@ class EditorService
      */
     public function getUserTempFilePaths(): array
     {
-        $dir       = $this->builder->getUserTempDir();
+        $dir       = $this->auth->getUserTempDir();
         $filepaths = glob($dir . '/new *');
         $tmp       = [];
 
@@ -457,7 +475,7 @@ class EditorService
             $name = 'new 1';
         }
 
-        return $this->builder->getUserTempDir() . '/' . $name;
+        return $this->auth->getUserTempDir() . '/' . $name;
     }
 
     /**
@@ -466,7 +484,7 @@ class EditorService
     public function newTempFile(): void
     {
         $newfilepath = $this->getNewFilePath();
-        $this->builder->file_put_contents($newfilepath, '');
+        $this->fileOps->filePutContents($newfilepath, '');
 
         if (!file_exists($newfilepath)) {
             \CloudPad\Core\Response::json(['success' => false, 'message' => "Unable to create $newfilepath."]);
@@ -492,7 +510,7 @@ class EditorService
      */
     public function cloneFile(string $filename, string $repository, string $newname): void
     {
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (empty($filepath)) {
             \CloudPad\Core\Response::json(['success' => false, 'message' => 'Source file not found.']);
@@ -501,22 +519,22 @@ class EditorService
 
         $newfilepath = dirname($filepath) . '/' . $newname;
 
-        if ($this->builder->file_exists($newfilepath, $repository)) {
+        if ($this->fileOps->fileExists($newfilepath, $repository)) {
             \CloudPad\Core\Response::json(['success' => false, 'message' => "Destination file '$newname' already exists."]);
             return;
         }
 
-        $content = $this->builder->file_get_contents($filepath, $repository);
-        $this->builder->file_put_contents($newfilepath, $content, $repository);
+        $content = $this->fileOps->fileGetContents($filepath, $repository);
+        $this->fileOps->filePutContents($newfilepath, $content, $repository);
 
-        if (!$this->builder->file_exists($newfilepath, $repository)) {
+        if (!$this->fileOps->fileExists($newfilepath, $repository)) {
             \CloudPad\Core\Response::json(['success' => false, 'message' => "Unable to create $newfilepath."]);
             return;
         }
 
-        $rpath = $this->builder->getRepositoryWisePath($newfilepath, $repository, $newname);
+        $rpath = $this->repoManager->getRepositoryWisePath($newfilepath, $repository, $newname);
         $this->setFilePath($rpath, $newfilepath, $repository);
-        $this->builder->addToRepositoryFilePaths($newfilepath, $repository);
+        $this->addToRepositoryFilePaths($newfilepath, $repository);
 
         \CloudPad\Core\Response::json([
             'success'    => true,
@@ -531,7 +549,7 @@ class EditorService
      */
     public function rebuildSubIndexes(string $filename, string $repository): void
     {
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (empty($filepath) || !file_exists($filepath)) {
             \CloudPad\Core\Response::json(['success' => false, 'message' => 'Source file not found.']);
@@ -539,15 +557,15 @@ class EditorService
         }
 
         $dir       = dirname($filepath);
-        $cachefile = $this->builder->getRepositoryCacheFile($repository);
-        $filepaths = json_decode($this->builder->file_get_contents($cachefile), true) ?: [];
-        $paths     = $this->builder->rsearch($dir);
+        $cachefile = $this->repoManager->getRepositoryCacheFile($repository);
+        $filepaths = json_decode($this->fileOps->fileGetContents($cachefile), true) ?: [];
+        $paths     = $this->fileSearch->rsearch($dir);
 
         if (!empty($paths)) {
             $filepaths = array_merge($filepaths, $paths);
         }
 
-        $this->builder->file_put_contents($cachefile, json_encode($filepaths));
+        $this->fileOps->filePutContents($cachefile, json_encode($filepaths));
         \CloudPad\Core\Response::json(['success' => true, 'message' => 'Indexing done']);
     }
 
@@ -562,14 +580,14 @@ class EditorService
         string $content,
         bool $createTempRevisionOnly
     ): void {
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (empty($filepath)) {
             \CloudPad\Core\Response::json(['success' => false, 'message' => 'Source file not found.']);
             return;
         }
 
-        $old_content = $this->builder->file_get_contents($filepath, $repository);
+        $old_content = $this->fileOps->fileGetContents($filepath, $repository);
 
         // Safety: kiểm tra content không bị nhầm file
         $segmentsize     = 500;
@@ -580,7 +598,7 @@ class EditorService
             || stripos($content, '<{$smarty') !== false;
 
         if ($is_temp_file && $not_temp_content) {
-            $this->builder->flush_line("[ERROR] Saving a wrong content to '$filename', possibly", true);
+            $this->output->flushLine("[ERROR] Saving a wrong content to '$filename', possibly", true);
             return;
         }
 
@@ -588,7 +606,7 @@ class EditorService
             && !preg_match('/^\/builder\/(config|apps|tmp)/is', $filepath);
 
         if ($protection && !$this->isSameContent($content_segment, $file_segment)) {
-            $this->builder->flush_line("[ERROR] $filepath Save to a wrong file '" . basename($filepath) . "'???", true);
+            $this->output->flushLine("[ERROR] $filepath Save to a wrong file '" . basename($filepath) . "'???", true);
             return;
         }
 
@@ -597,16 +615,16 @@ class EditorService
         if (trim($content) !== '') {
             if ($content !== $old_content) {
                 if ($createTempRevisionOnly) {
-                    $this->builder->create_temp_revision($filepath, $content);
+                    $this->revisionManager->createTempRevision($filepath, $content);
                 } else {
-                    $this->builder->save_file_revision($filepath, $old_content);
+                    $this->revisionManager->saveFileRevision($filepath, $old_content);
                     $this->onBeforeSavingFile($content, $extension);
-                    $this->builder->file_put_contents($filepath, $content, $repository);
+                    $this->fileOps->filePutContents($filepath, $content, $repository);
                     $_SESSION['openfilepaths'][$repository][$filename] = $filepath;
                 }
             }
         } else {
-            $this->builder->flush_line("[ERROR] Cannot save an empty content to '" . basename($filepath) . "'", true);
+            $this->output->flushLine("[ERROR] Cannot save an empty content to '" . basename($filepath) . "'", true);
         }
     }
 
@@ -697,9 +715,9 @@ class EditorService
         $cachefile = dirname(dirname(dirname(__DIR__))) . '/cache/' . $repository;
 
         if (file_exists($cachefile)) {
-            $filepaths   = json_decode($this->builder->file_get_contents($cachefile), true) ?: [];
+            $filepaths   = json_decode($this->fileOps->fileGetContents($cachefile), true) ?: [];
             $filepaths[] = $filepath;
-            $this->builder->file_put_contents($cachefile, json_encode($filepaths));
+            $this->fileOps->filePutContents($cachefile, json_encode($filepaths));
         }
     }
 

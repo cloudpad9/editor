@@ -3,18 +3,23 @@ namespace CloudPad\Editor;
 
 class ColorManager
 {
-    private \Builder $builder;
+    private \CloudPad\Repository\RepositoryManagerInterface $repoManager;
+    private \CloudPad\FileSystem\FileOperationsInterface $fileOps;
     private string $appDir;
 
-    public function __construct(\Builder $builder, string $appDir)
-    {
-        $this->builder = $builder;
-        $this->appDir  = $appDir;
+    public function __construct(
+        \CloudPad\Repository\RepositoryManagerInterface $repoManager,
+        \CloudPad\FileSystem\FileOperationsInterface $fileOps,
+        string $appDir
+    ) {
+        $this->repoManager = $repoManager;
+        $this->fileOps     = $fileOps;
+        $this->appDir      = $appDir;
     }
 
     public function setColor(string $filename, string $repository, string $color): void
     {
-        $filepath = $this->builder->getAbsoluteFilePath($filename, $repository);
+        $filepath = $this->repoManager->getAbsoluteFilePath($filename, $repository);
 
         if (empty($filepath)) {
             \CloudPad\Core\Response::fail('Source file not found.');
@@ -22,7 +27,7 @@ class ColorManager
 
         $colorfile = $this->getColorFile();
         $colors    = file_exists($colorfile)
-            ? (json_decode($this->builder->file_get_contents($colorfile), true) ?: [])
+            ? (json_decode($this->fileOps->fileGetContents($colorfile), true) ?: [])
             : [];
 
         if (!empty($color)) {
@@ -31,7 +36,7 @@ class ColorManager
             unset($colors[$filepath]);
         }
 
-        $this->builder->file_put_contents($colorfile, json_encode($colors, JSON_UNESCAPED_UNICODE));
+        $this->fileOps->filePutContents($colorfile, json_encode($colors, JSON_UNESCAPED_UNICODE));
         \CloudPad\Core\Response::ok();
     }
 
@@ -40,7 +45,7 @@ class ColorManager
         $colorfile = $this->getColorFile();
 
         if (file_exists($colorfile)) {
-            $colors = json_decode($this->builder->file_get_contents($colorfile), true) ?: [];
+            $colors = json_decode($this->fileOps->fileGetContents($colorfile), true) ?: [];
             return $colors[$filepath] ?? '';
         }
 

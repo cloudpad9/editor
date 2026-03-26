@@ -1,14 +1,21 @@
 <?php
+use CloudPad\Core\Exceptions\NotFoundException;
+use CloudPad\Core\Exceptions\ValidationException;
+
+/**
+ * git_revert — Revert file(s) về trạng thái HEAD hoặc commit cụ thể.
+ * Phase 6.3: json_fail() → throw exceptions
+ */
 function git_revert($builder) {
     $repository = \CloudPad\Core\Request::getString('repository');
     $pathParam  = \CloudPad\Core\Request::getString('path');
     $commit     = trim(\CloudPad\Core\Request::getString('commit'));
 
     if (trim($pathParam) === '') {
-        json_fail('Path is empty.');
+        throw new ValidationException('Path is empty.');
     }
     if ($commit !== '' && !preg_match('/^[a-f0-9]{6,40}$/i', $commit)) {
-        json_fail('Invalid commit hash format.');
+        throw new ValidationException('Invalid commit hash format.');
     }
 
     $paths = array_values(array_filter(
@@ -16,7 +23,7 @@ function git_revert($builder) {
         fn($s) => $s !== ''
     ));
     if (!$paths) {
-        json_fail('No valid paths.');
+        throw new ValidationException('No valid paths.');
     }
 
     $groups  = [];
@@ -25,14 +32,13 @@ function git_revert($builder) {
     foreach ($paths as $p) {
         $abs = $builder->getAbsoluteFilePath($p, $repository);
         if (!$abs) {
-            // Accept absolute system paths
             if (preg_match('~^/|^[A-Za-z]:[\\\\/]~', $p)) {
                 $abs = $p;
             }
         }
         if (!$abs) { $invalid[] = $p; continue; }
 
-        // Walk up to find existing ancestor (file may have been deleted)
+        // Walk up để tìm ancestor tồn tại (file có thể đã bị xoá)
         $probe = $abs;
         $last  = '';
         while (!file_exists($probe)) {
@@ -64,7 +70,7 @@ function git_revert($builder) {
     }
 
     if ($invalid) {
-        json_fail('No valid git-tracked paths to revert. Invalid: ' . implode(', ', $invalid));
+        throw new NotFoundException('No valid git-tracked paths to revert. Invalid: ' . implode(', ', $invalid));
     }
 
     $chunks = [];
@@ -80,7 +86,7 @@ function git_revert($builder) {
         $cmd         = '--no-pager checkout ' . ($commit !== '' ? escapeshellarg($commit) . ' -- ' : '-- ') . $args;
         $outCheckout = '';
         if (!$builder->execGitCommand($toplevel, $cmd, $outCheckout)) {
-            json_fail('git checkout failed: ' . (string)$outCheckout);
+            throw new ValidationException('git checkout failed: ' . (string)$outCheckout);
         }
 
         $chunk = "Repo: $toplevel";

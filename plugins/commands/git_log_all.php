@@ -1,23 +1,15 @@
 <?php
+/**
+ * git_log_all — Backward-compat stub.
+ *
+ * Phase 5: Logic đã được gộp vào git_log.php với scope=all.
+ *
+ * @deprecated Dùng git_log với scope=all thay thế.
+ */
 function git_log_all($builder) {
-    $repository = \CloudPad\Core\Request::getString('repository');
-    $path       = \CloudPad\Core\Request::getString('path');
+    $_REQUEST['scope'] = 'all';
+    $_GET['scope']     = 'all';
+    $_POST['scope']    = 'all';
 
-    $filepath = $builder->getAbsoluteFilePath($path, $repository);
-    if (empty($filepath)) {
-        json_fail('Source file not found.');
-    }
-
-    $info = $builder->get_git_info($filepath);
-    if (empty($info) || empty($info['ok'])) {
-        $msg = $info['message'] ?? 'Not a valid git repository root.';
-        json_fail($msg, ['debug' => $info]);
-    }
-
-    $toplevel = $info['toplevel'];
-
-    $out = '';
-    $builder->execGitCommand($toplevel, '--no-pager log --stat -n 20', $out);
-
-    json_ok(['output' => (string)$out]);
+    git_log($builder);
 }

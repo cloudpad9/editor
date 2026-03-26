@@ -1,31 +1,32 @@
 <?php
+use CloudPad\Core\Exceptions\NotFoundException;
+use CloudPad\Core\Exceptions\ValidationException;
+use CloudPad\Core\Exceptions\FileSystemException;
+
+/**
+ * rename_file — Đổi tên file trong repository.
+ * Phase 6.3: Response::json(fail) → throw exceptions
+ */
 function rename_file($builder) {
-    $filename = \CloudPad\Core\Request::getString('filename');
+    $filename   = \CloudPad\Core\Request::getString('filename');
     $repository = \CloudPad\Core\Request::getString('repository');
-    $newname = \CloudPad\Core\Request::getString('newname');
+    $newname    = \CloudPad\Core\Request::getString('newname');
 
     $filepath = $builder->getAbsoluteFilePath($filename, $repository);
-
     if (empty($filepath)) {
-        \CloudPad\Core\Response::json(array('success' => false, 'message' => 'Source file not found.'));
-
-        return;
+        throw new NotFoundException('Source file not found.');
     }
 
-    $newfilepath = dirname($filepath).'/'.$newname;
+    $newfilepath = dirname($filepath) . '/' . $newname;
 
     if (file_exists($newfilepath)) {
-        \CloudPad\Core\Response::json(array('success' => false, 'message' => "Destination file '$newname' already exists."));
-
-        return;
+        throw new ValidationException("Destination file '$newname' already exists.");
     }
 
     $builder->try_exec('mv ' . escapeshellarg($filepath) . ' ' . escapeshellarg($newfilepath));
 
     if (!file_exists($newfilepath)) {
-        \CloudPad\Core\Response::json(array('success' => false, 'message' => "Cannot rename $filepath -> $newfilepath"));
-
-        return;
+        throw new FileSystemException("Cannot rename $filepath -> $newfilepath.");
     }
 
     $rpath = $builder->getRepositoryWisePath($newfilepath, $repository, $newname);
@@ -34,5 +35,5 @@ function rename_file($builder) {
 
     $content = $builder->file_get_contents($newfilepath, $repository);
 
-    \CloudPad\Core\Response::json(array('success' => true, 'content' => $content, 'filename' => $rpath, 'repository' => $repository));
+    json_ok(['content' => $content, 'filename' => $rpath, 'repository' => $repository]);
 }

@@ -1,72 +1,64 @@
 <?php
-function upload_file($builder) {
-    $path = \CloudPad\Core\Request::getString('path');
-    $repository = \CloudPad\Core\Request::getString('repository');
-    $name = \CloudPad\Core\Request::getString('name');
+use CloudPad\Core\Exceptions\ValidationException;
+use CloudPad\Core\Exceptions\FileSystemException;
 
-    $file = isset($_FILES['file'])? $_FILES['file'] : array();
+/**
+ * upload_file — Upload file vào thư mục trong repository.
+ * Phase 6.3: Response::json(fail) → throw exceptions
+ */
+function upload_file($builder) {
+    $path       = \CloudPad\Core\Request::getString('path');
+    $repository = \CloudPad\Core\Request::getString('repository');
+    $name       = \CloudPad\Core\Request::getString('name');
+
+    $file = $_FILES['file'] ?? [];
 
     if (empty($file)) {
-        \CloudPad\Core\Response::json(['success' => false, 'message' => 'Invalid request']);
-        exit;
+        throw new ValidationException('Invalid request: no file uploaded.');
     }
 
-    if ($file['error']) {
-        \CloudPad\Core\Response::json(['success' => false, 'message' => 'Upload failed']);
-        exit;
+    if (!empty($file['error'])) {
+        throw new ValidationException('Upload failed (error code: ' . $file['error'] . ').');
     }
 
-    $fileName = $file['name'];
     $filePath = $file['tmp_name'];
 
-    $settings = $builder->getRepositorySettings($repository);
-    $dirs = $settings['dirs'];
+    $settings  = $builder->getRepositorySettings($repository);
+    $dirs      = $settings['dirs'] ?? [];
 
-    // Extract branch, path
     $branch = '';
-
-    if (preg_match('/^([0-9]+)\:\/\/(.*)/', trim($path), $match)) {
+    if (preg_match('/^([0-9]+):\/\/(.*)/', trim($path), $match)) {
         $branch = $match[1];
-        $path = $match[2];
+        $path   = $match[2];
     }
 
-    // Lấy branch dir
-    $branchDir = isset($dirs[$branch - 1])? $dirs[$branch - 1] : '';
+    $branchDir = isset($dirs[$branch - 1]) ? $dirs[$branch - 1] : '';
 
-    if (!empty($branchDir) && is_dir($branchDir)) {
-        $branchDir = rtrim($branchDir, '/');
-
-        $dir = $branchDir.'/'.$path;
-
-        if (is_dir($dir)) {
-            $newFilePath = rtrim($dir, '/').'/'.$name;
-
-            ob_start();
-
-            $builder->try_exec('chmod 755 ' . escapeshellarg($dir));
-
-            $output = ob_get_clean();
-
-            if (!empty($output)) {
-                $output = str_replace($branchDir, '', $output);
-
-                \CloudPad\Core\Response::json(array('success' => false, 'message' => $output));
-
-                return;
-            }
-
-            move_uploaded_file($filePath, $newFilePath);
-
-            if (!file_exists($newFilePath)) {
-                \CloudPad\Core\Response::json(array('success' => false, 'message' => "Operation failed. Cannot upload file '$name'"));
-
-                return;
-            }
-
-            \CloudPad\Core\Response::json(array('success' => true));
-            exit;
-        }
+    if (empty($branchDir) || !is_dir($branchDir)) {
+        throw new ValidationException('Operation failed.');
     }
 
-    \CloudPad\Core\Response::json(array('success' => false, 'message' => "Operation failed"));
+    $branchDir   = rtrim($branchDir, '/');
+    $dir         = $branchDir . '/' . $path;
+    $newFilePath = rtrim($dir, '/') . '/' . $name;
+
+    if (!is_dir($dir)) {
+        throw new ValidationException('Operation failed.');
+    }
+
+    ob_start();
+    $builder->try_exec('chmod 755 ' . escapeshellarg($dir));
+    $output = ob_get_clean();
+
+    if (!empty($output)) {
+        throw new FileSystemException(str_replace($branchDir, '', $output));
+    }
+
+    move_uploaded_file($filePath, $newFilePath);
+
+    if (!file_exists($newFilePath)) {
+        throw new FileSystemException("Operation failed. Cannot upload file '$name'.");
+    }
+
+    json_ok();
 }

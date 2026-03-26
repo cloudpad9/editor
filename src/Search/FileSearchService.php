@@ -1,13 +1,24 @@
 <?php
 namespace CloudPad\Search;
 
-class FileSearchService
-{
-    private \Builder $builder;
+use CloudPad\Core\Output\OutputManager;
+use CloudPad\Repository\RepositoryManagerInterface;
 
-    public function __construct(\Builder $builder)
+/**
+ * FileSearchService — Tìm kiếm files trong repository.
+ *
+ * Phase 10: Loại bỏ Builder → inject OutputManager + RepositoryManagerInterface.
+ * Implements FileSearchServiceInterface.
+ */
+class FileSearchService implements FileSearchServiceInterface
+{
+    private OutputManager $output;
+    private RepositoryManagerInterface $repoManager;
+
+    public function __construct(OutputManager $output, RepositoryManagerInterface $repoManager)
     {
-        $this->builder = $builder;
+        $this->output      = $output;
+        $this->repoManager = $repoManager;
     }
 
     public function searchForFile(string $filename, string $repository): string
@@ -18,113 +29,85 @@ class FileSearchService
 
     public function searchForFiles(string $filename, string $repository, int $limit = 0, bool $exact = false): array
     {
-        $filepaths = $this->builder->getRepositoryFilePaths($repository, false);
+        $filepaths = $this->repoManager->getRepositoryFilePaths($repository, false);
         return $this->searchForFilesInArray($filename, $filepaths, $limit, $exact);
     }
 
     public function searchForFilesInArray(string $filename, array $filepaths, int $limit = 0, bool $exact = false): array
     {
-        $nameonly    = stripos($filename, '/') === false;
-        $withregex   = stripos($filename, '*') !== false;
-        $substrLen   = strlen($filename);
-        $results     = [];
-        $count       = 0;
+        $nameonly      = stripos($filename, '/') === false;
+        $withregex     = stripos($filename, '*') !== false;
+        $results       = [];
+        $count         = 0;
         $filenameRegex = '';
 
         if ($withregex) {
             $filenameRegex = '/' .
                 str_replace(['\\*', '\\/', '\\.', '\\-'], ['.*', '\\/', '\\.', '\\-'],
-                    preg_quote($filename, '/')
-                ) . '/is';
+                    preg_quote($filename, '/')) . '/is';
         }
 
-        foreach ($filepaths as $path) {
-            $matched = (!$exact && stripos($path, $filename) !== false)
-                || ($exact && substr_compare($path, $filename, -$substrLen) === 0)
-                || ($withregex && preg_match($filenameRegex, $path));
+        foreach ($filepaths as $filepath) {
+            $compare = $nameonly ? basename($filepath) : $filepath;
 
-            if ($matched) {
+            if ($withregex) {
+                if (!preg_match($filenameRegex, $compare)) continue;
+            } elseif ($exact) {
+                if (strcasecmp($compare, $filename) !== 0) continue;
+            } else {
+                if (stripos($compare, $filename) === false) continue;
+            }
+
+            $results[] = $filepath;
+            $count++;
+            if ($limit > 0 && $count >= $limit) break;
+        }
+
+        return $results;
+    }
+
+    public function rsearch(string $dir, array $excludes = [], array $includes = []): array
+    {
+        if (!is_dir($dir)) {
+            $this->output->verbose('[ERROR] Directory does not exist <-- ' . $dir);
+            return [];
+        }
+
+        $results = [];
+        $it = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        foreach ($it as $file) {
+            if ($file->isDir()) continue;
+            $path = $file->getPathname();
+            if (!$this->isExcludedPath($path, $excludes, $includes)) {
                 $results[] = $path;
-                $count++;
-
-                if ($limit && $count >= $limit) {
-                    break;
-                }
             }
         }
 
         return $results;
     }
 
-    public function isPathMatched(string $path, string $pattern): bool
+    public function glob(string $dir): array
     {
-        if (strpos($pattern, '*') === false) {
-            return stripos($path, $pattern) !== false;
+        if (!is_dir($dir)) return [];
+        $entries = [];
+        foreach (new \DirectoryIterator($dir) as $item) {
+            if (!$item->isDot()) $entries[] = $item->getPathname();
         }
-
-        $pattern = str_replace(['/', '.', '*'], ['\\/', '\\.', '.*'], $pattern);
-
-        return (bool)preg_match('/' . $pattern . '/i', $path);
+        return $entries;
     }
 
     public function isExcludedPath(string $file, array $excludes, array $includes): bool
     {
         foreach ($includes as $include) {
-            if ($this->isPathMatched($file, $include)) {
-                return false;
-            }
+            if (stripos($file, $include) !== false) return false;
         }
-
         foreach ($excludes as $exclude) {
-            if ($this->isPathMatched($file, $exclude)) {
-                return true;
-            }
+            if (stripos($file, $exclude) !== false) return true;
         }
-
         return false;
-    }
-
-    public function glob(string $dir): array
-    {
-        $tree = [];
-
-        if (is_dir($dir)) {
-            $iterator = new \DirectoryIterator($dir);
-
-            foreach ($iterator as $entry) {
-                if ($entry->isFile() || ($entry->isDir() && !$entry->isDot() && $entry->getFilename() !== '.svn')) {
-                    $tree[] = $entry->getPathname();
-                }
-            }
-        } else {
-            $this->builder->verbose('[ERROR] Directory does not exist <-- ' . $dir);
-        }
-
-        return $tree;
-    }
-
-    public function rsearch(string $dir, array $excludes = [], array $includes = [], string $fsPrefix = ''): array
-    {
-        $dirs      = [rtrim($dir, '/')];
-        $filepaths = [];
-
-        while ($dirs) {
-            $dir  = array_pop($dirs);
-            $tree = $this->glob($dir);
-
-            foreach ($tree as $file) {
-                if ($this->isExcludedPath($file, $excludes, $includes)) {
-                    continue;
-                }
-
-                if (is_dir($file) && basename($file) !== 'cache') {
-                    $dirs[] = $file;
-                } elseif (is_file($file)) {
-                    $filepaths[] = $fsPrefix ? str_replace($fsPrefix, '', $file) : $file;
-                }
-            }
-        }
-
-        return $filepaths;
     }
 }
