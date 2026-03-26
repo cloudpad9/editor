@@ -20,5 +20,5 @@ function fs_chmod($builder) {
     // FIX: escapeshellarg() cho cả file lẫn mode để tránh Command Injection
     $command = 'chmod ' . escapeshellarg($mode) . ' ' . escapeshellarg($file);
 
-    $builder->ssh_xxx($command);
+    $builder->execute_linux($command);
 }

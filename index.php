@@ -777,6 +777,627 @@ class Builder
 
     function get_git_info(string $filepath): array { return $this->_gitService->getGitInfo($filepath); }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // Phase 9.1 — Restored missing methods (wrappers & implementations)
+    // Nguyên nhân thiếu: khi refactor v2.0.1→v2.0.4, methods được di chuyển
+    // sang service classes nhưng thin wrappers trong Builder không được tạo.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Output / Logging ─────────────────────────────────────────────────────
+
+    /**
+     * Log verbose message — chỉ output khi verbose=true trong request.
+     * Gọi bởi: Router, RepositoryManager, FileSearchService, is_plugin_command().
+     */
+    function verbose($content)
+    {
+        $verbose = \CloudPad\Core\Request::getBool('verbose', true);
+
+        if ($verbose) {
+            $this->flush_line($content);
+        }
+    }
+
+    // ── Process Management ───────────────────────────────────────────────────
+
+    /**
+     * Lưu PID của child process để có thể kill nếu cần.
+     * Gọi bởi: Builder::exec() (line 330).
+     */
+    function save_pid(int $pid): void
+    {
+        $file = $this->getUserDataDir() . '/.pid';
+        @file_put_contents($file, (string)$pid);
+    }
+
+    /**
+     * Kiểm tra user có yêu cầu stop process không.
+     * Frontend tạo file .stop khi user nhấn Stop, method này kiểm tra và xoá.
+     * Gọi bởi: Builder::exec() (line 362).
+     */
+    function is_stop_pending(): bool
+    {
+        $file = $this->getUserDataDir() . '/.stop';
+
+        if (file_exists($file)) {
+            @unlink($file);
+            return true;
+        }
+
+        return false;
+    }
+
+    // ── Plugin Filesystem ────────────────────────────────────────────────────
+
+    /**
+     * Load filesystem plugin handler theo type (local, git, sftp, svn).
+     * Gọi bởi: RepositoryManager::getRepositoryHandler().
+     *
+     * @param string  $fs       FS type identifier (local|git|sftp|svn)
+     * @param object  &$handler Populated with plugin_fs_* instance on success
+     * @return bool
+     */
+    function has_plugin_fs($fs, &$handler)
+    {
+        $handler = null;
+
+        $dir = __DIR__ . '/plugins/fs';
+        $filepath = $dir . "/$fs/$fs.php";
+
+        if (!file_exists($filepath)) {
+            $this->verbose("[ERROR] Plugin file '$filepath' is not found");
+            return false;
+        }
+
+        require_once($filepath);
+
+        $filename = basename($filepath);
+        $classname = 'plugin_fs_' . $fs;
+
+        if (!class_exists($classname)) {
+            $this->verbose("[ERROR] Class '$classname' is not found in file '$filename'");
+            return false;
+        }
+
+        $handler = new $classname($this);
+
+        if (!method_exists($handler, 'init') || !method_exists($handler, 'getRepositoryOperations') || !method_exists($handler, 'getLocalizedPath')) {
+            $handler = null;
+            $this->verbose("[ERROR] Class '$classname' should declare methods `init()`, `getRepositoryOperations()` and `getLocalizedPath()`");
+            return false;
+        }
+
+        return true;
+    }
+
+    // ── Plugin Tabs ──────────────────────────────────────────────────────────
+
+    /**
+     * Load tab plugin handler.
+     * Gọi bởi: getUserTabs().
+     */
+    function has_plugin_tab($tab, &$handler)
+    {
+        $handler = null;
+
+        $dir = __DIR__ . '/plugins/tabs';
+        $filepath = $dir . "/$tab/index.php";
+
+        if (!file_exists($filepath)) {
+            return false;
+        }
+
+        require_once($filepath);
+
+        $filename = basename($filepath);
+        $classname = 'plugin_tab_' . str_replace('-', '_', $tab);
+
+        if (!class_exists($classname)) {
+            $this->verbose("[ERROR] Class '$classname' is not found in file '$filename'");
+            return false;
+        }
+
+        $handler = new $classname();
+
+        if (!method_exists($handler, 'getTabTitle') || !method_exists($handler, 'getPluginInfo') || !method_exists($handler, 'render')) {
+            $handler = null;
+            $this->verbose("[ERROR] Class '$classname' should declare methods `getTabTitle()`, `getPluginInfo()` and `render()`");
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Trả danh sách tab handlers cho user hiện tại.
+     * Gọi bởi: tpl/index.tpl.
+     */
+    function getUserTabs()
+    {
+        static $handlers = null;
+
+        if ($handlers === null) {
+            $tabs = self::getEnabledPluginsOfCurrentUser();
+            $handlers = array();
+
+            foreach ($tabs as $tab) {
+                if ($this->has_plugin_tab($tab, $handler)) {
+                    $handlers[$tab] = $handler;
+                }
+            }
+        }
+
+        return $handlers;
+    }
+
+    // ── User / Permission (static) ───────────────────────────────────────────
+
+    /**
+     * Danh sách plugins có sẵn cho user hiện tại.
+     */
+    static function getAvailablePluginsOfCurrentUser()
+    {
+        $plugins = isset($_SESSION['builder.user']['plugins']) ? $_SESSION['builder.user']['plugins'] : array();
+
+        if (!empty($_SESSION['builder.user']['repositories'])) {
+            $plugins[] = 'editor';
+        }
+
+        asort($plugins);
+
+        return $plugins;
+    }
+
+    /**
+     * Danh sách plugins đã bật cho user hiện tại.
+     * Gọi bởi: getUserTabs().
+     */
+    static function getEnabledPluginsOfCurrentUser()
+    {
+        $plugins = $_SESSION['builder.user']['plugins'] ?? [];
+        return $plugins;
+    }
+
+    /**
+     * Permissions của user hiện tại.
+     */
+    static function getCurrentUserPermission()
+    {
+        return ['editor', 'snr'];
+    }
+
+    /**
+     * Kiểm tra user có permission cụ thể.
+     * Gọi bởi: tab templates (tabs/editor/index.tpl, tabs/snr/index.tpl).
+     */
+    static function hasPermission($key)
+    {
+        $perms = self::getCurrentUserPermission();
+        return in_array($key, $perms) || in_array('all', $perms);
+    }
+
+    /**
+     * Trả thông tin user hiện tại.
+     */
+    function getCurrentUser()
+    {
+        return $_SESSION['builder.user'];
+    }
+
+    /**
+     * Trả username hiện tại.
+     */
+    function getCurrentUsername()
+    {
+        return $_SESSION['builder.username'];
+    }
+
+    /**
+     * Load danh sách users từ config.
+     * Gọi bởi: plugins/commands/user/index.php (login).
+     */
+    function getUsers()
+    {
+        return include(__DIR__ . '/users.conf.php');
+    }
+
+    // ── Repository Manager wrappers ──────────────────────────────────────────
+
+    /**
+     * Trả tất cả repositories đã khởi tạo cho user.
+     * Gọi bởi: tabs/editor/index.tpl, tabs/snr/index.tpl, hasRepositoryPermission().
+     */
+    function getRepositories(): array
+    {
+        return $this->_repositoryManager->getRepositories();
+    }
+
+    /**
+     * Trả settings của một repository cụ thể.
+     * Gọi bởi: EditorService, FileOperations, SyncService, nhiều plugin commands.
+     */
+    function getRepositorySettings(string $repository)
+    {
+        return $this->_repositoryManager->getRepositorySettings($repository);
+    }
+
+    /**
+     * Kiểm tra user có quyền access repository.
+     * Gọi bởi: EditorService, copy_files, move_files plugins.
+     */
+    function hasRepositoryPermission(string $repository): bool
+    {
+        return $this->_repositoryManager->hasRepositoryPermission($repository);
+    }
+
+    /**
+     * Trả danh sách file paths (cached) trong repository.
+     * Gọi bởi: FileSearchService, EditorService.
+     */
+    function getRepositoryFilePaths(string $repository, bool $forceRebuild = false): array
+    {
+        return $this->_repositoryManager->getRepositoryFilePaths($repository, $forceRebuild);
+    }
+
+    /**
+     * Trả path dạng branch://relpath cho hiển thị.
+     * Gọi bởi: EditorService.
+     */
+    function getRepositoryWisePath(string $filepath, string $repository, ?string $filename = null): string
+    {
+        return $this->_repositoryManager->getRepositoryWisePath($filepath, $repository, $filename ?? basename($filepath));
+    }
+
+    /**
+     * Tìm repository chứa filepath.
+     * Gọi bởi: SyncService.
+     */
+    function getFileRepository(string $filepath): string
+    {
+        return $this->_repositoryManager->getFileRepository($filepath);
+    }
+
+    /**
+     * Trả đường dẫn file cache cho repository.
+     * Gọi bởi: EditorService.
+     */
+    function getRepositoryCacheFile(string $repository): string
+    {
+        return $this->_repositoryManager->getRepositoryCacheFile($repository);
+    }
+
+    /**
+     * Trả danh sách file paths (rebuild từ disk, không cache).
+     * Gọi bởi: plugins/commands/rebuild_filepaths_indexes.php.
+     */
+    function getProjectFilePaths(string $repository, bool $forceRebuild = false): array
+    {
+        return $this->_repositoryManager->getProjectFilePaths($repository, $forceRebuild);
+    }
+
+    // ── File Search wrappers ─────────────────────────────────────────────────
+
+    /**
+     * Tìm chính xác 1 file trong repository.
+     * Gọi bởi: EditorService, RepositoryManager.
+     */
+    function searchForFile(string $filename, string $repository): string
+    {
+        return $this->_fileSearch->searchForFile($filename, $repository);
+    }
+
+    /**
+     * Tìm nhiều files matching trong repository.
+     * Gọi bởi: EditorService.
+     */
+    function searchForFiles(string $filename, string $repository, int $limit = 0, bool $exact = false): array
+    {
+        return $this->_fileSearch->searchForFiles($filename, $repository, $limit, $exact);
+    }
+
+    /**
+     * Tìm files matching trong array file paths cho trước.
+     * Gọi bởi: EditorService.
+     */
+    function searchForFilesInArray(string $filename, array $filepaths, int $limit = 0, bool $exact = false): array
+    {
+        return $this->_fileSearch->searchForFilesInArray($filename, $filepaths, $limit, $exact);
+    }
+
+    /**
+     * Recursive search files trong directory, loại trừ excludes.
+     * Gọi bởi: EditorService, RepositoryManager.
+     */
+    function rsearch(string $dir, array $excludes = [], array $includes = []): array
+    {
+        return $this->_fileSearch->rsearch($dir, $excludes, $includes);
+    }
+
+    /**
+     * Liệt kê entries trong directory (non-recursive).
+     * Gọi bởi: FileSearchService (internal), RepositoryManager.
+     */
+    function glob(string $dir): array
+    {
+        return $this->_fileSearch->glob($dir);
+    }
+
+    /**
+     * Kiểm tra path có bị excluded không.
+     */
+    function isExcludedPath(string $file, array $excludes, array $includes): bool
+    {
+        return $this->_fileSearch->isExcludedPath($file, $excludes, $includes);
+    }
+
+    // ── SSH Shell Commands ───────────────────────────────────────────────────
+
+    /**
+     * Trả danh sách shell commands thường dùng cho repository hiện tại.
+     * Lấy từ repository handler (plugin_fs_local, plugin_fs_git, etc.)
+     * Gọi bởi: SSHService::sshExec().
+     */
+    function getFrequentUsedShellCommands(): array
+    {
+        $repository = \CloudPad\Core\Request::getString('repository');
+
+        if (empty($repository)) {
+            return [];
+        }
+
+        $settings = $this->getRepositorySettings($repository);
+
+        if (empty($settings) || empty($settings['handler'])) {
+            return [];
+        }
+
+        return $settings['handler']->getRepositoryOperations($settings);
+    }
+
+    // ── Editor Service wrappers ──────────────────────────────────────────────
+
+    /**
+     * Cập nhật session filepath cho file đang mở.
+     * Gọi bởi: EditorService (internal callback).
+     */
+    function setFilePath(string $filename, string $filepath, string $repository): void
+    {
+        $this->_editorService->setFilePath($filename, $filepath, $repository);
+    }
+
+    /**
+     * Thêm filepath vào cache index của repository.
+     * Gọi bởi: plugins/commands/rename_file.php, rename_directory_of_file.php.
+     */
+    function addToRepositoryFilePaths(string $filepath, string $repository): void
+    {
+        $this->_editorService->addToRepositoryFilePaths($filepath, $repository);
+    }
+
+    /**
+     * Trả danh sách files đang mở trong editor.
+     * Gọi bởi: getEditorOpenFiles(), tpl logic.
+     */
+    function getOpenFiles(bool $tempOnly = false): array
+    {
+        return $this->_editorService->getOpenFiles($tempOnly);
+    }
+
+    /**
+     * Trả danh sách files đang mở (formatted cho frontend).
+     * Gọi bởi: tabs/editor/index.tpl.
+     */
+    function getEditorOpenFiles(bool $tempOnly = false): array
+    {
+        return $this->_editorService->getEditorOpenFiles($tempOnly);
+    }
+
+    // ── Search & Replace ─────────────────────────────────────────────────────
+
+    /**
+     * Kiểm tra file path có match pattern (bao gồm include/exclude support).
+     * Gọi bởi: snr_search().
+     */
+    function file_mask_matched($pattern, $path)
+    {
+        if (empty($pattern)) {
+            return true;
+        }
+
+        $patterns = preg_split('/[,;\s]+/', $pattern, -1, PREG_SPLIT_NO_EMPTY);
+        $include_patterns = [];
+        $exclude_patterns = [];
+
+        foreach ($patterns as $pat) {
+            $pat = trim($pat);
+            if (empty($pat)) {
+                continue;
+            }
+
+            if ($pat[0] === '-') {
+                $pat = substr($pat, 1);
+                $exclude_patterns[] = $pat;
+            } else {
+                $include_patterns[] = $pat;
+            }
+        }
+
+        // Check exclude patterns first
+        foreach ($exclude_patterns as $pat) {
+            $regex = str_replace(['/', '.', '*'], ['\\/', '\\.', '.+'], $pat);
+            $regex = '/' . $regex . '/is';
+
+            if (preg_match($regex, $path)) {
+                return false;
+            }
+        }
+
+        // Check include patterns
+        foreach ($include_patterns as $pat) {
+            $regex = str_replace(['/', '.', '*'], ['\\/', '\\.', '.+'], $pat);
+            $regex = '/' . $regex . '/is';
+
+            if (preg_match($regex, $path)) {
+                return true;
+            }
+        }
+
+        return empty($include_patterns);
+    }
+
+    /**
+     * Search & Replace chính — tìm kiếm text trong tất cả files của repository.
+     * Gọi bởi: plugins/commands/snr_search.php.
+     */
+    function snr_search($repository, $search, $caseinsensitive = true, $file_mask = '', $max_found_files = 20, $search_by_filename = false, $force_replace = false, $replace = '', $force_delete = false)
+    {
+        $filepaths = $this->getRepositoryFilePaths($repository, false);
+
+        $search_file = 0;
+        $found_file  = 0;
+        $found_occ   = 0;
+
+        $manual_commands = array();
+
+        foreach ($filepaths as $path) {
+            if (!$this->file_mask_matched($file_mask, $path)) {
+                continue;
+            }
+
+            $relpath = $this->getRelPath($path, $repository);
+
+            if ($search_by_filename) {
+                if ($this->file_mask_matched($search, $path)) {
+                    $found_file += 1;
+
+                    if ($force_delete) {
+                        $manual_commands[] = "svn delete $path";
+                    } else {
+                        $this->flush("\nFound file: <span data-url=\"index.php?action=open-inline-file&repository=$repository&file=$relpath\" class=\"snr-file js-snr-file\">$path</span>\n");
+                    }
+
+                    if ($found_file >= $max_found_files) {
+                        break;
+                    } else {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+            }
+
+            $search_file += 1;
+
+            $handle = fopen($this->getLocalizedPath($path, $repository), "r");
+            $found  = false;
+            $cnt    = 0;
+            $occ    = 0;
+
+            if ($handle) {
+                while (($line = fgets($handle)) !== false) {
+                    $line = trim($line);
+                    $cnt += 1;
+
+                    if ($caseinsensitive) {
+                        $pos = $this->snr_get_pos($line, $search, true, $full_matched_segment);
+                    } else {
+                        $pos = $this->snr_get_pos($line, $search, false, $full_matched_segment);
+                    }
+
+                    if ($pos !== false) {
+                        if (!$found) {
+                            $this->flush("<div class=\"snr-item\" data-repository=\"$repository\" data-file=\"$relpath\"><span class=\"snr-item-header\">Processing file: <span class=\"snr-file\">$relpath</span></span>\n");
+                            $this->flush("<div class=\"snr-item-body\">");
+                        }
+                        $found = true;
+
+                        if ($caseinsensitive) {
+                            $occ += substr_count(strtoupper($line), strtoupper($full_matched_segment));
+                        } else {
+                            $occ += substr_count($line, $full_matched_segment);
+                        }
+
+                        $segment = substr($line, max(0, $pos - 50), strlen($full_matched_segment) + 50);
+                        $segment = htmlentities($segment, ENT_QUOTES);
+                        $_search = htmlentities($full_matched_segment, ENT_QUOTES);
+                        $segment = preg_replace('/(' . preg_quote($_search, '/') . ')/s' . ($caseinsensitive ? 'i' : ''), '<span class="snr-match">\\1</span>', $segment);
+                        $segment = trim($segment);
+
+                        $this->flush("<span data-line=\"$cnt\" data-url=\"index.php?action=open-inline-file&repository=$repository&file=$relpath&line=$cnt\" class=\"snr-line js-snr-file\">- Line $cnt -&nbsp;&nbsp;&nbsp;&nbsp; $segment</span>\n");
+
+                        // Replace
+                        if ($force_replace && !empty($replace)) {
+                            $segment = substr($line, max(0, $pos - 50), strlen($full_matched_segment) + 50);
+                            $segment = str_replace($full_matched_segment, $replace, $segment);
+                            $segment = htmlentities($segment, ENT_QUOTES);
+                            $_replace = htmlentities($replace, ENT_QUOTES);
+                            $segment = preg_replace('/(' . preg_quote($_replace, '/') . ')/s' . ($caseinsensitive ? 'i' : ''), '<span class="snr-replacement">\\1</span>', $segment);
+                            $segment = trim($segment);
+
+                            $this->flush("<span data-line=\"$cnt\" data-url=\"index.php?action=open-inline-file&repository=$repository&file=$relpath&line=$cnt\" class=\"snr-line js-snr-file\">- Replaced by -&nbsp;&nbsp;&nbsp;&nbsp; $segment</span>\n");
+                        }
+                    }
+                }
+
+                fclose($handle);
+            }
+
+            if ($found) {
+                // Replace
+                if ($force_replace) {
+                    $this->snr_replace($path, $search, $caseinsensitive, $replace, $repository);
+                }
+
+                // Delete
+                if ($force_delete) {
+                    unlink($path);
+                    $this->flush("<div class=\"snr-item\"><span class=\"snr-item-header\">Deleting file: <span class=\"snr-file\">$path</span></span>\n");
+                }
+
+                $found_file += 1;
+                $found_occ += $occ;
+
+                $this->flush("  <span>Found $occ occurrences.</span>");
+                $this->flush("</div>");
+                $this->flush("</div>");
+            }
+
+            if ($found_file >= $max_found_files) {
+                break;
+            }
+        }
+
+        if (!empty($manual_commands)) {
+            $this->flush(implode("\n", $manual_commands));
+        }
+
+        if (!$force_delete) {
+            $this->flush("  <span class=\"snr-file\">Searched $search_file file(s), found $found_occ occurrences in $found_file file(s).</span>\n");
+        } else {
+            $this->flush("  <span class=\"snr-file\">Searched $search_file file(s), deleted $found_file file(s).</span>\n");
+        }
+
+        if (!$found_occ) {
+            $this->flush("  <span style=\"color:red\">HINTS: Rebuild the repository's indexes and try again.</span>\n");
+        }
+    }
+
+    // ── Misc helpers ─────────────────────────────────────────────────────────
+
+    function get_sub_dirs($dir)
+    {
+        $paths = glob("$dir/*");
+        $sub_dirs = array();
+
+        foreach ($paths as $path) {
+            if (is_dir($path)) {
+                $sub_dirs[] = basename($path);
+            }
+        }
+
+        return $sub_dirs;
+    }
+
 }
 
 global $ajax, $verbose;
