@@ -149,6 +149,9 @@ class ProfilingHelper {
 
 class Builder
 {
+    // ── App root directory ───────────────────────────────────────────────────────
+    private string $_appDir;
+
     // ── Service instances ─────────────────────────────────────────────────────
     private \CloudPad\I18n\Translator                          $_translator;
     private \CloudPad\Auth\AuthService                         $_auth;
@@ -168,7 +171,8 @@ class Builder
 
     function __construct()
     {
-        $appDir = defined('BUILDER_DIR') ? BUILDER_DIR : __DIR__;
+        $appDir = defined('BUILDER_DIR') ? BUILDER_DIR : dirname(__DIR__);
+        $this->_appDir = $appDir;
 
         // ── Phase 10: Bootstrap via DI Container ─────────────────────────────
         // Tất cả service-to-service dependencies đi qua Container.
@@ -445,6 +449,12 @@ class Builder
             return $handler->$methodname($this);
         }
         return $handler($this);
+    } else {
+                return $handler($this);
+            }
+        } else {
+            $this->error("`$command_path` is not a valid plugin command");
+        }
     }
 
     /**
@@ -486,7 +496,7 @@ class Builder
     {
         $handler = null;
 
-        $dir = __DIR__ . '/plugins/fs';
+        $dir = $this->_appDir . '/plugins/fs';
         $filepath = $dir . "/$fs/$fs.php";
 
         if (!file_exists($filepath)) {
@@ -525,7 +535,7 @@ class Builder
     {
         $handler = null;
 
-        $dir = __DIR__ . '/plugins/tabs';
+        $dir = $this->_appDir . '/plugins/tabs';
         $filepath = $dir . "/$tab/index.php";
 
         if (!file_exists($filepath)) {
@@ -633,7 +643,7 @@ class Builder
      */
     function getUsers()
     {
-        return include(__DIR__ . '/users.conf.php');
+        return include($this->_appDir . '/users.conf.php');
     }
 
     // ── Repository Manager wrappers ──────────────────────────────────────────
