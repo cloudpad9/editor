@@ -727,7 +727,7 @@ class EditorService implements EditorServiceInterface
     /**
      * Trả tất cả open files (merge temp + session openfilepaths).
      */
-    public function getOpenFiles(bool $tempFilesOnly): array
+    public function getOpenFiles(bool $tempOnly = false): array
     {
         $paths     = [];
         $tmp_paths = $this->getUserTempFilePaths();
@@ -738,7 +738,7 @@ class EditorService implements EditorServiceInterface
             $this->editorSession->setFilePath('*', $name, $path);
         }
 
-        if (!$tempFilesOnly) {
+        if (!$tempOnly) {
             $open_paths = $this->editorSession->getAllOpenFilePaths();
 
             foreach ($open_paths as $repo => $repo_files) {
@@ -756,9 +756,9 @@ class EditorService implements EditorServiceInterface
     /**
      * Giống getOpenFiles nhưng trả array of filenames thay vì path map.
      */
-    public function getEditorOpenFiles(bool $tempFilesOnly = false): array
+    public function getEditorOpenFiles(bool $tempOnly = false): array
     {
-        $files = $this->getOpenFiles($tempFilesOnly);
+        $files = $this->getOpenFiles($tempOnly);
 
         foreach ($files as $repo => $repo_files) {
             $files[$repo] = array_keys($repo_files);
