@@ -197,6 +197,42 @@ function convertToAceEditor(elements) {
 
         editor.setValue(self.val(), -1)
 
+        // Variables to hold cut content
+        let cutContent = '';
+
+        // Function to cut the current line
+        function cutLine() {
+            const session = editor.getSession();
+            const cursor = editor.getCursorPosition();
+            const line = session.getLine(cursor.row);
+            cutContent = line; // Store the content to cut
+            session.remove(new ace.Range(cursor.row, 0, cursor.row + 1, 0)); // Remove the line
+        }
+
+        // Function to paste the cut content
+        function pasteLine() {
+            if (cutContent) {
+                const session = editor.getSession();
+                const cursor = editor.getCursorPosition();
+                session.insert({ row: cursor.row, column: 0 }, cutContent + '\n'); // Insert the cut content
+            }
+        }
+
+        // Register custom key bindings
+        editor.commands.addCommand({
+            name: 'cutLine',
+            bindKey: { win: 'Ctrl-K', mac: 'Command-K' },
+            exec: cutLine,
+            readOnly: false // true if this command should not apply in readOnly mode
+        });
+
+        editor.commands.addCommand({
+            name: 'pasteLine',
+            bindKey: { win: 'Ctrl-U', mac: 'Command-U' },
+            exec: pasteLine,
+            readOnly: false
+        });
+
         editor.commands.addCommand({
             name: 'saveContent',
             bindKey: {win: 'Ctrl-S',  mac: 'Command-S'},
@@ -261,7 +297,7 @@ function convertToAceEditor(elements) {
 
         editor.commands.addCommand({
             name: 'toUpperCase',
-            bindKey: {win: 'Ctrl-U',  mac: 'Command-U'},
+            bindKey: {win: 'Ctrl-Shift-U',  mac: 'Command-Shift-U'},
             exec: function(editor) {
                 let cache = aceOpCache["toUpperCase"] || ""
                 let text = editor.getCopyText()
@@ -291,7 +327,7 @@ function convertToAceEditor(elements) {
 
         editor.commands.addCommand({
             name: 'toLowerCase',
-            bindKey: {win: 'Ctrl-L',  mac: 'Command-L'},
+            bindKey: {win: 'Ctrl-Shift-L',  mac: 'Command-Shift-L'},
             exec: function(editor) {
                 let cache = aceOpCache["toLowerCase"] || ""
                 let text = editor.getCopyText()
@@ -1137,6 +1173,26 @@ class Editor {
             this.editorNewFile()
         }
 
+        // Bắt sự kiện click trên tab để emit vào bus
+        this._recentTabKey = null
+
+        this.$ul.off('click.editor').on('click.editor', 'a.tab_title', (e) => {
+            const $li = $(e.currentTarget).closest('li')
+
+            const repository = ($li.data('repository') || '').toString()
+            const path = ($li.data('filename') || '').toString()
+
+            const key = repository + '|' + path
+
+            if (key === this._recentTabKey) return
+
+            this._recentTabKey = key
+
+            if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+                window.editorEventBus.$emit('editor-tab-clicked', { repository, path })
+            }
+        })
+
         if (!MobileDetect.any()) {
             this.$ul.sortable()
         }
@@ -1661,6 +1717,58 @@ class Editor {
                 that.editorCopyFilePath(tab_li)
             })
 
+            var mnu_pin_to_quick_access = $('<li>Pin to quick access</li>').click(function() {
+                that.editorPinToQuickAccess(tab_li)
+            })
+
+            var mnu_open_file_location = $('<li>Open file location</li>').click(function() {
+                that.editorOpenFileLocation(tab_li)
+            })
+
+            var mnu_download_file = $('<li>Download</li>').click(function() {
+                that.editorDownloadFile(tab_li)
+            })
+
+            var mnu_git_status = $('<li>Git status</li>').click(function() {
+                that.editorGitStatus(tab_li)
+            })
+
+            var mnu_git_pull = $('<li>Git pull</li>').click(function() {
+                that.editorGitPull(tab_li)
+            })
+
+            var mnu_git_diff = $('<li>Git diff</li>').click(function() {
+                that.editorGitDiff(tab_li)
+            })
+
+            var mnu_git_diff_all = $('<li>Git diff all</li>').click(function() {
+                that.editorGitDiffAll(tab_li)
+            })
+
+            var mnu_apply_patch = $('<li>Apply patch</li>').click(function() {
+                that.editorApplyPatch(tab_li)
+            })
+
+            var mnu_git_revert = $('<li>Git revert</li>').click(function() {
+                that.editorGitRevert(tab_li)
+            })
+
+            var mnu_git_commit = $('<li>Git commit</li>').click(function() {
+                that.editorGitCommit(tab_li)
+            })
+
+            var mnu_git_commit_all = $('<li>Git commit all</li>').click(function() {
+                that.editorGitCommitAll(tab_li)
+            })
+
+            var mnu_git_log = $('<li>Git log</li>').click(function() {
+                that.editorGitLog(tab_li)
+            })
+
+            var mnu_git_log_all = $('<li>Git log all</li>').click(function() {
+                that.editorGitLogAll(tab_li)
+            })
+
             var mnu_view_function_list = $('<li>View function list</li>').click(function() {
                 that.editorViewFunctionList(tab_li)
             })
@@ -1712,7 +1820,25 @@ class Editor {
                 .append(mnu_close_all)
                 .append(mnu_close_all_right)
                 .append(sep)
+                .append(mnu_download_file)
+                .append(sep)
+                .append(mnu_open_file_location)
+                .append(sep)
                 .append(mnu_copy_path)
+                .append(sep)
+                .append(mnu_pin_to_quick_access)
+                .append(sep)
+                .append(mnu_apply_patch)
+                .append(sep)
+                .append(mnu_git_status)
+                .append(mnu_git_pull)
+                .append(mnu_git_diff)
+                .append(mnu_git_diff_all)
+                .append(mnu_git_commit)
+                .append(mnu_git_commit_all)
+                .append(mnu_git_revert)
+                .append(mnu_git_log)
+                .append(mnu_git_log_all)
                 .append(sep)
                 .append(mnu_view_function_list)
                 .append(sep)
@@ -1795,6 +1921,257 @@ class Editor {
                 showMessage(json.message)
             }
         })
+    }
+
+    editorPinToQuickAccess(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('pin-to-quick-access', { repository, path })
+        } else {
+            let errorMessage = 'Không thể xem pin to quick access. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorOpenFileLocation(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorComponent && typeof window.editorComponent.expandPathToNode === 'function') {
+            window.editorComponent.expandPathToNode(repository, path)
+        } else {
+            let errorMessage = 'Không thể mở file location. ';
+
+            if (!window.editorComponent) {
+                errorMessage += 'Explorer component chưa được khởi tạo.';
+            } else if (typeof window.editorComponent.expandPathToNode !== 'function') {
+                errorMessage += 'Method expandPathToNode không khả dụng.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorDownloadFile(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorComponent && typeof window.editorComponent.downloadFile === 'function') {
+            window.editorComponent.downloadFile(repository, path)
+        } else {
+            let errorMessage = 'Không thể tải file. ';
+
+            if (!window.editorComponent) {
+                errorMessage += 'Explorer component chưa được khởi tạo.';
+            } else if (typeof window.editorComponent.downloadFile !== 'function') {
+                errorMessage += 'Method downloadFile không khả dụng.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitStatus(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-status', { repository, path })
+        } else {
+            let errorMessage = 'Không thể xem git status. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitPull(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-pull', { repository, path })
+        } else {
+            let errorMessage = 'Không thể xem git pull. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitDiff(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-diff', { repository, path })
+        } else {
+            let errorMessage = 'Không thể xem git diff. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitDiffAll(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-diff-all', { repository, path })
+        } else {
+            let errorMessage = 'Không thể xem git diff all. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorApplyPatch(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('apply-patch', { repository, path })
+        } else {
+            let errorMessage = 'Không thể xem apply patch. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitRevert(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-revert', { repository, path })
+        } else {
+            let errorMessage = 'Không thể git revert. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitCommit(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-commit', { repository, path })
+        } else {
+            let errorMessage = 'Không thể git commit. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitCommitAll(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-commit-all', { repository, path })
+        } else {
+            let errorMessage = 'Không thể git commit all. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitLog(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-log', { repository, path })
+        } else {
+            let errorMessage = 'Không thể git log. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
+    }
+
+    editorGitLogAll(tab_li) {
+        tab_li = tab_li || this.$ul.find('li.ui-tabs-active')
+
+        var repository = tab_li.data('repository')
+        var path = tab_li.data('filename')
+
+        if (window.editorEventBus && typeof window.editorEventBus.$emit === 'function') {
+            window.editorEventBus.$emit('git-log-all', { repository, path })
+        } else {
+            let errorMessage = 'Không thể git log all. ';
+
+            if (!window.editorEventBus || typeof window.editorComponent.$emit !== 'function') {
+                errorMessage += 'Editor event bus chưa được khởi tạo.';
+            }
+
+            showMessage(errorMessage);
+        }
     }
 
     editorViewFunctionList(tab_li) {
