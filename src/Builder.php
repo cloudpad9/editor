@@ -396,7 +396,7 @@ class Builder
         $from_text = mb_convert_encoding($from_text, 'HTML-ENTITIES', 'UTF-8');
         $to_text   = mb_convert_encoding($to_text,   'HTML-ENTITIES', 'UTF-8');
 
-        include 'finediff.php';
+        include $this->_appDir . '/finediff.php';
 
         $opcodes       = FineDiff::getDiffOpcodes($from_text, $to_text);
         $rendered_diff = FineDiff::renderDiffToHTMLFromOpcodes($from_text, $opcodes);
@@ -449,12 +449,6 @@ class Builder
             return $handler->$methodname($this);
         }
         return $handler($this);
-    } else {
-                return $handler($this);
-            }
-        } else {
-            $this->error("`$command_path` is not a valid plugin command");
-        }
     }
 
     /**
