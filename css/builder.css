@@ -14,7 +14,9 @@ body, .ui-widget, .ui-widget input, .ui-widget select, .ui-widget textarea, .ui-
     color: #202124;
     overflow-x: hidden;
 }
-
+label {
+    margin-bottom: 0;
+}
 .tmp-hidden {
     display: none!important;
 }
@@ -226,7 +228,6 @@ input[type=submit],
 
 #popup_message {
     max-height: 80vh;
-    overflow: auto;
 }
 
 /* Notification */
@@ -346,7 +347,6 @@ input[type=submit],
     }
 }
 .module {
-    color: #6d6e70;
     border: 1px solid #d1d1d1;
     border-radius: 5px;
 }
@@ -755,6 +755,24 @@ body.blocked #blocked-overlay {
     cursor: pointer;
 }
 
+/* Components: SearchResults, ReplaceResults */
+.sr-root {
+    height: 100%;
+    overflow: auto;
+    padding: 0 10px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 15px;
+    background: #f7f3d6; /* nền vàng nhạt như ảnh */
+}
+.sr-file { margin-top: 12px; }
+.sr-file-head { display: flex; align-items: baseline; gap: 6px; }
+.sr-collapser { width: 28px; cursor: pointer; color: #000; user-select: none; }
+.sr-path { color: #06c; text-decoration: underline; cursor: pointer; }
+.sr-preview { margin-left: 10px; white-space: pre; overflow: auto; }
+.sr-hit { color: #c00; font-weight: bold; }
+.sr-repl { background: #b7eb8f; font-weight: bold; }
+.sr-summary { margin-top: 12px; }
+
 /* App */
 .app-name {
     z-index: 6;
@@ -1039,9 +1057,9 @@ form .has-radio label {
 }
 #dev_editor_sidebar {
     width: 300px;
-    padding: 5px;
+    padding: 0;
     height: 100%;
-    overflow: auto;
+    overflow: visible;
     font-size: 12px;
     background: var(--editor-sidebar-background);
     color: var(--editor-sidebar-color);
@@ -1049,6 +1067,8 @@ form .has-radio label {
     position: relative;
     display: flex;
     flex-direction: column;
+    z-index: 9;
+}
 }
 #dev_editor_sidebar #explorer {
     flex: 1;
@@ -1088,9 +1108,10 @@ form .has-radio label {
 }
 #explorer .toolbar {
     position: sticky;
-    text-align: right;
-    background: #3f3f3f3d;
+    display: flex;
+    background: #3f3f3f;
     top: 0;
+    padding: 1px;
 }
 #explorer .toolbar .sep {
     border-left: 1px solid #8BC34A;
@@ -1113,7 +1134,9 @@ form .has-radio label {
 }
 #explorer .file-tree {
     list-style-type: none;
-    padding: 0;
+    padding: 5px;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 #explorer .file-tree li.current > .tree-node {
     color: orange;
@@ -1130,9 +1153,13 @@ form .has-radio label {
     align-items: center;
     white-space: nowrap;
     cursor: pointer;
+    transition: background-color 0.3s ease;
 }
 #explorer .tree-node:hover {
     background: #3c3c3c;
+}
+#explorer .tree-node.scroll-highlight {
+    background-color: #3c3c3c !important;
 }
 #explorer .tree-icon {
     margin-right: 5px;
@@ -1143,6 +1170,82 @@ form .has-radio label {
     width: 16px;
     margin-right: 5px
 }
+.explorer-files-search-root {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    position: relative;
+    flex: 1;
+}
+
+/* clear button sits inside input on the left */
+.explorer-files-search-clear {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    cursor: pointer;
+    padding: 4px;
+    user-select: none;
+    color: rgba(255,255,255,0.75);
+    background: transparent;
+    border-radius: 4px;
+    font-size: 10px;
+}
+.explorer-files-search-clear:hover {
+    color: rgba(255,255,255,0.95);
+}
+
+.explorer-files-search-input {
+    border: none;
+    outline: none;
+    background: none;
+    color: #fff !important;
+    flex: 1;
+    font-size: 12px !important;
+    padding: 2px 5px;
+    border-radius: 1px;
+}
+
+/* overlay dark card that matches sidebar */
+.explorer-files-search-overlay {
+    position: absolute;
+    right: -78px;
+    top: calc(100%);
+    z-index: 9999;
+    min-width: 299px;
+    max-height: 360px;
+    overflow: auto;
+    background: #fff;
+}
+
+/* list */
+.explorer-files-search-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+}
+
+/* item */
+.explorer-files-search-item {
+    display: flex;
+    flex-direction: column;
+    padding: 3px;
+    cursor: pointer;
+    color: #000;
+    font-size: 15px;
+    white-space: nowrap;
+}
+
+/* highlight mark (match) with good contrast on dark bg */
+.explorer-files-search-overlay mark {
+    background: rgba(255,213,79,0.15);
+    color: #ffd54f;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
 @media screen and (max-width: 640px) {
     #dev_editor > div {
         flex-direction: column;
@@ -1161,17 +1264,10 @@ form .has-radio label {
     padding: 0;
 }
 
-.editor-tabs .ace_editor {
-    height:83vh!important;
-}
-
 body.standalone {
     overflow:hidden;
 }
 
-body.standalone .editor-tabs .ace_editor {
-    height:calc(100vh - 38px)!important;
-}
 .ace_search_field {
     font-size: inherit!important;
 }
@@ -1190,16 +1286,13 @@ body.standalone .editor-tabs .ace_editor {
 
 .ace_editor {
     width: 100%!important;
+    height: 100%!important;
     font: 16px/normal 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace!important;
     background: var(--editor-background)
 }
 
 .ace-cloud_editor_dark {
     color: #bfbfbf;
-}
-
-.ace_editor:not(.ace_autocomplete) {
-    height: calc(100vh - 179px)!important;
 }
 
 .file-list {
@@ -1231,6 +1324,14 @@ input.filename {
 /* Editor */
 .editor-tabs .ui-tabs-panel {
     padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    flex: 1;
+}
+
+.editor-tabs .ui-tabs-panel form {
+    height: 100%;
 }
 
 .editor-tabs .ui-tabs-nav {
@@ -1261,6 +1362,17 @@ input.filename {
 .editor-tabs .ui-tabs-nav .ui-tabs-anchor {
     padding: 3px 12px;
     outline: none!important;
+}
+
+/* Git diff viewer */
+.git-diff-viewer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+    background: pink;
 }
 
 /* Live search */
