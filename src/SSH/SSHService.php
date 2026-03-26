@@ -7,14 +7,18 @@ class SSHService
     private \CloudPad\Core\Process\ProcessManager $process;
     private \CloudPad\Repository\RepositoryManagerInterface $repoManager;
 
+    private \CloudPad\Core\Session\SSHSessionStore $sshSession;
+
     public function __construct(
         \CloudPad\Core\Output\OutputManager $output,
         \CloudPad\Core\Process\ProcessManager $process,
-        \CloudPad\Repository\RepositoryManagerInterface $repoManager
+        \CloudPad\Repository\RepositoryManagerInterface $repoManager,
+        \CloudPad\Core\Session\SSHSessionStore $sshSession
     ) {
-        $this->output      = $output;
-        $this->process     = $process;
+        $this->output     = $output;
+        $this->process    = $process;
         $this->repoManager = $repoManager;
+        $this->sshSession = $sshSession;
     }
 
     public function ensureSafeCommand(string $command): void
@@ -73,8 +77,8 @@ class SSHService
             }
         }
 
-        if (empty($password) && isset($_SESSION['SSH_PASSWORD'])) {
-            $password = $_SESSION['SSH_PASSWORD'];
+        if (empty($password) && $this->sshSession->hasPassword()) {
+            $password = $this->sshSession->getPassword();
         }
 
         $ssh = new \phpseclib3\Net\SSH2('localhost', SSH_PORT);
@@ -120,10 +124,10 @@ class SSHService
             echo $this->getAugmentedOutput($output, $command);
         }
 
-        $_SESSION['SSH_HOST']     = $host;
-        $_SESSION['SSH_PORT']     = $port;
-        $_SESSION['SSH_USERNAME'] = $username;
-        $_SESSION['SSH_PASSWORD'] = $password;
+        $this->sshSession->setHost($host);
+        $this->sshSession->setPort($port);
+        $this->sshSession->setUsername($username);
+        $this->sshSession->setPassword($password);
     }
 
     public function privateSshExec(array|string $commands): void
@@ -183,15 +187,15 @@ class SSHService
             $requires = ['SSH_HOST', 'SSH_PORT', 'SSH_USERNAME', 'SSH_PASSWORD'];
 
             foreach ($requires as $name) {
-                if (empty($_SESSION[$name])) {
+                if (empty($this->sshSession->getParam($name))) {
                     $this->output->flushLine("[ERROR] $name is required\n", true);
                     return '';
                 }
             }
 
-            $ssh = new \phpseclib3\Net\SSH2($_SESSION['SSH_HOST'], $_SESSION['SSH_PORT']);
+            $ssh = new \phpseclib3\Net\SSH2($this->sshSession->getHost(), $this->sshSession->getPort());
 
-            if (!$ssh->login($_SESSION['SSH_USERNAME'], $_SESSION['SSH_PASSWORD'])) {
+            if (!$ssh->login($this->sshSession->getUsername(), $this->sshSession->getPassword())) {
                 exit('SSH login failed');
             }
 
@@ -230,7 +234,7 @@ class SSHService
             return false;
         }
 
-        $cwd = $_SESSION['cwd'] ?? '';
+        $cwd = $this->sshSession->getCwd();
         $res = $this->process->exec($cmd, $cwd);
 
         if (preg_match('/^cd (.+)/is', $cmd, $match)) {
@@ -243,7 +247,7 @@ class SSHService
             } else {
                 $cwd = $match[1];
             }
-            $_SESSION['cwd'] = $cwd;
+            $this->sshSession->setCwd($cwd);
         }
 
         echo "[$cwd]#<br/>";

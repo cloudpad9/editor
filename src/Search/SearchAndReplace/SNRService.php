@@ -22,14 +22,18 @@ class SNRService
     private \CloudPad\Repository\RepositoryManagerInterface $repoManager;
     private \CloudPad\FileSystem\FileOperationsInterface $fileOps;
 
+    private \CloudPad\Core\Session\SNRSessionStore $snrSession;
+
     public function __construct(
         OutputManager $output,
         \CloudPad\Repository\RepositoryManagerInterface $repoManager,
-        \CloudPad\FileSystem\FileOperationsInterface $fileOps
+        \CloudPad\FileSystem\FileOperationsInterface $fileOps,
+        \CloudPad\Core\Session\SNRSessionStore $snrSession
     ) {
         $this->output      = $output;
         $this->repoManager = $repoManager;
         $this->fileOps     = $fileOps;
+        $this->snrSession  = $snrSession;
     }
 
     // ── Regex helpers ─────────────────────────────────────────────────────
@@ -169,7 +173,7 @@ class SNRService
         }
 
         if ($content2 !== $content) {
-            $_SESSION['snr-backup'][$filepath] = $content;
+            $this->snrSession->setBackupEntry($filepath, $content);
             $this->fileOps->filePutContents($filepath, $content2, $repository, $ignored, false);
         }
     }
@@ -179,7 +183,7 @@ class SNRService
      */
     public function revert(): void
     {
-        foreach ($_SESSION['snr-backup'] ?? [] as $filepath => $content) {
+        foreach ($this->snrSession->getBackup() as $filepath => $content) {
             $this->fileOps->filePutContents($filepath, $content);
             $this->output->flushLine("Restore $filepath\n");
         }

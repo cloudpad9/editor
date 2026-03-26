@@ -26,18 +26,25 @@ class RepositoryManager implements RepositoryManagerInterface
      *   Callback để load plugin_fs_* instances (còn ở Builder::has_plugin_fs).
      *   Sẽ được loại bỏ hoàn toàn ở Phase 10.5 khi PluginManager được tách ra.
      */
+    private \CloudPad\Core\Session\AuthSessionStore $authSession;
+    private \CloudPad\Core\Session\EditorSessionStore $editorSession;
+
     public function __construct(
-        OutputManager            $output,
-        FileOperationsInterface  $fileOps,
+        OutputManager              $output,
+        FileOperationsInterface    $fileOps,
         FileSearchServiceInterface $fileSearch,
-        string                   $appDir,
-        callable                 $pluginFsLoader
+        string                     $appDir,
+        callable                   $pluginFsLoader,
+        \CloudPad\Core\Session\AuthSessionStore   $authSession,
+        \CloudPad\Core\Session\EditorSessionStore $editorSession
     ) {
         $this->output         = $output;
         $this->fileOps        = $fileOps;
         $this->fileSearch     = $fileSearch;
         $this->appDir         = $appDir;
         $this->pluginFsLoader = $pluginFsLoader;
+        $this->authSession    = $authSession;
+        $this->editorSession  = $editorSession;
     }
 
     // ── Repository list ───────────────────────────────────────────────────────
@@ -53,7 +60,7 @@ class RepositoryManager implements RepositoryManagerInterface
         if ($repositories !== null) return $repositories;
 
         $all          = $this->getRepositoriesFromFile();
-        $userRepos    = $_SESSION['builder.user']['repositories'] ?? [];
+        $userRepos    = $this->authSession->getRepositories();
         $repositories = [];
 
         foreach ($userRepos as $repo) {
@@ -142,7 +149,7 @@ class RepositoryManager implements RepositoryManagerInterface
 
     public function getAbsoluteFilePath(string $filename, string $repository): string
     {
-        $filepath   = $_SESSION['filepaths'][$repository][$filename] ?? '';
+        $filepath   = $this->editorSession->getFilePath($repository, $filename);
         $isTempFile = !empty($filename) && $filename[0] === '*';
 
         if (!empty($filepath) && !$isTempFile && basename($filename) !== basename($filepath)) {

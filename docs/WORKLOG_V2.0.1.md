@@ -445,3 +445,31 @@ cloudpad9/
 ---
 
 *Worklog này được tạo tự động bởi AI agent sau khi hoàn thành Phase 0–4 của REFACTORING_PLAN.md*
+
+---
+
+## UPDATE — 2026-03-25 (master branch integration)
+
+### ✅ Tích hợp 10 git commands từ nhánh master
+
+**Thay đổi `index.php`:**
+- Thêm bridge `json_success()` → `Response::ok()` (master dùng `json_success`, chưa có trong main)
+- Thêm `Builder::execGitCommand(string $repoDir, string $subCmd, string &$output): bool`
+- Thêm `Builder::get_git_info(string $filepath): array`
+
+**10 plugin commands mới tạo (conform với codebase main):**
+
+| File | Thay đổi so với master |
+|------|------------------------|
+| `git_commit.php` | `$_REQUEST` → `Request::getString()`; fix bug `$message = $_REQUEST['path']` → `Request::getString('message')`; `json_success` → `json_ok` |
+| `git_commit_all.php` | Tương tự git_commit |
+| `git_diff.php` | `$_REQUEST` → `Request::getString()`; `json_success` → `json_ok` |
+| `git_diff_all.php` | `$_REQUEST` → `Request::getString()` |
+| `git_log.php` | `$_REQUEST` → `Request::getString()` |
+| `git_log_all.php` | `$_REQUEST` → `Request::getString()` |
+| `git_pull.php` | `$_REQUEST` → `Request::getString()` |
+| `git_remove_untracked.php` | `$_REQUEST` → `Request::getString()`; rename helper `rrmdir_recursive` → `_rrmdir_recursive` tránh conflict |
+| `git_revert.php` | `$_REQUEST` → `Request::getString()`; `json_success` → `json_ok` |
+| `git_status.php` | `$_REQUEST` → `Request::getString()`; fix `getRepositoryWisePath()` call signature |
+
+**`tpl/index.tpl`:** Giữ nguyên version đã fix XSS của main — KHÔNG lấy từ master.

@@ -7,14 +7,18 @@ class ColorManager
     private \CloudPad\FileSystem\FileOperationsInterface $fileOps;
     private string $appDir;
 
+    private \CloudPad\Core\Session\AuthSessionStore $authSession;
+
     public function __construct(
         \CloudPad\Repository\RepositoryManagerInterface $repoManager,
         \CloudPad\FileSystem\FileOperationsInterface $fileOps,
-        string $appDir
+        string $appDir,
+        \CloudPad\Core\Session\AuthSessionStore $authSession
     ) {
-        $this->repoManager = $repoManager;
-        $this->fileOps     = $fileOps;
-        $this->appDir      = $appDir;
+        $this->repoManager  = $repoManager;
+        $this->fileOps      = $fileOps;
+        $this->appDir       = $appDir;
+        $this->authSession  = $authSession;
     }
 
     public function setColor(string $filename, string $repository, string $color): void
@@ -54,7 +58,7 @@ class ColorManager
 
     public function getColorFile(): string
     {
-        $dir = $this->appDir . '/tmp/' . $_SESSION['builder.username'];
+        $dir = $this->appDir . '/tmp/' . ($this->authSession->getUsername() ?: 'guest');
 
         if (!is_dir($dir)) {
             mkdir($dir, 0777, true);

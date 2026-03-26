@@ -27,6 +27,7 @@ class EditorService implements EditorServiceInterface
     private \CloudPad\Editor\ColorManager                     $colorManager;
     private \CloudPad\Editor\RevisionManager                  $revisionManager;
     private \CloudPad\Core\Output\OutputManager               $output;
+    private \CloudPad\Core\Session\EditorSessionStore         $editorSession;
 
     public function __construct(
         \CloudPad\Repository\RepositoryManagerInterface  $repoManager,
@@ -35,7 +36,8 @@ class EditorService implements EditorServiceInterface
         \CloudPad\Auth\AuthServiceInterface               $auth,
         \CloudPad\Editor\ColorManager                     $colorManager,
         \CloudPad\Editor\RevisionManager                  $revisionManager,
-        \CloudPad\Core\Output\OutputManager               $output
+        \CloudPad\Core\Output\OutputManager               $output,
+        \CloudPad\Core\Session\EditorSessionStore         $editorSession
     ) {
         $this->repoManager     = $repoManager;
         $this->fileOps         = $fileOps;
@@ -44,6 +46,7 @@ class EditorService implements EditorServiceInterface
         $this->colorManager    = $colorManager;
         $this->revisionManager = $revisionManager;
         $this->output          = $output;
+        $this->editorSession   = $editorSession;
     }
 
     // ── File open / navigation ────────────────────────────────────────────────
@@ -106,7 +109,7 @@ class EditorService implements EditorServiceInterface
                 ];
             }
         } elseif ($branch === 'quick-access') {
-            $items = $_SESSION['quick-access'] ?? [];
+            $items = $this->editorSession->getQuickAccess();
             foreach ($items as $item) {
                 if (isset($item['repository'])) {
                     $children[] = [
@@ -228,7 +231,7 @@ class EditorService implements EditorServiceInterface
         if (!empty($filename) && $filename[0] === '/' && file_exists($filename)) {
             $filepaths = [$filename];
         } else {
-            $recentfilepaths = $_SESSION['recentfilepaths'][$repository] ?? [];
+            $recentfilepaths = $this->editorSession->getRecentFilePaths($repository);
             $filepaths_1     = !empty($recentfilepaths)
                 ? $this->fileSearch->searchForFilesInArray($filename, $recentfilepaths, 20)
                 : [];
@@ -308,15 +311,15 @@ class EditorService implements EditorServiceInterface
             return;
         }
 
-        if (isset($_SESSION['openfilepaths'][$repository][$filename])) {
-            $filepath     = $_SESSION['openfilepaths'][$repository][$filename];
+        if ($this->editorSession->getOpenFilePath($repository, $filename) !== '') {
+            $filepath     = $this->editorSession->getOpenFilePath($repository, $filename);
             $is_temp_file = ($filename[0] === '*');
 
             if ($is_temp_file) {
                 unlink($filepath);
             }
 
-            unset($_SESSION['openfilepaths'][$repository][$filename]);
+            $this->editorSession->removeOpenFilePath($repository, $filename);
         }
     }
 
@@ -348,7 +351,7 @@ class EditorService implements EditorServiceInterface
         if (!$is_custom_dir) {
             $uploaddir = $this->auth->getUserUploadDir();
         } else {
-            $_SESSION['files.upload.directory'] = $uploaddir;
+            $this->editorSession->setUploadDirectory($uploaddir);
         }
 
         if (!is_writable($uploaddir)) {
@@ -494,8 +497,8 @@ class EditorService implements EditorServiceInterface
         $filename = basename($newfilepath);
         $rpath    = '*' . $filename;
 
-        $_SESSION['filepaths']['*'][$rpath]     = $newfilepath;
-        $_SESSION['openfilepaths']['*'][$rpath] = $newfilepath;
+        $this->editorSession->setFilePath('*', $rpath, $newfilepath);
+        $this->editorSession->setOpenFilePath('*', $rpath, $newfilepath);
 
         \CloudPad\Core\Response::json([
             'success'    => true,
@@ -620,7 +623,7 @@ class EditorService implements EditorServiceInterface
                     $this->revisionManager->saveFileRevision($filepath, $old_content);
                     $this->onBeforeSavingFile($content, $extension);
                     $this->fileOps->filePutContents($filepath, $content, $repository);
-                    $_SESSION['openfilepaths'][$repository][$filename] = $filepath;
+                    $this->editorSession->setOpenFilePath($repository, $filename, $filepath);
                 }
             }
         } else {
@@ -702,9 +705,9 @@ class EditorService implements EditorServiceInterface
      */
     public function setFilePath(string $filename, string $filepath, string $repository): void
     {
-        $_SESSION['filepaths'][$repository][$filename]       = $filepath;
-        $_SESSION['openfilepaths'][$repository][$filename]   = $filepath;
-        $_SESSION['recentfilepaths'][$repository][$filename] = $filepath;
+        $this->editorSession->setFilePath($repository, $filename, $filepath);
+        $this->editorSession->setOpenFilePath($repository, $filename, $filepath);
+        $this->editorSession->setRecentFilePath($repository, $filename, $filepath);
     }
 
     /**
@@ -732,13 +735,11 @@ class EditorService implements EditorServiceInterface
         foreach ($tmp_paths as $path) {
             $name                          = '*' . basename($path);
             $paths['*'][$name]             = $path;
-            $_SESSION['filepaths']['*'][$name] = $path;
+            $this->editorSession->setFilePath('*', $name, $path);
         }
 
         if (!$tempFilesOnly) {
-            $open_paths = (isset($_SESSION['openfilepaths']) && is_array($_SESSION['openfilepaths']))
-                ? $_SESSION['openfilepaths']
-                : [];
+            $open_paths = $this->editorSession->getAllOpenFilePaths();
 
             foreach ($open_paths as $repo => $repo_files) {
                 foreach ($repo_files as $name => $path) {
@@ -746,7 +747,7 @@ class EditorService implements EditorServiceInterface
                 }
             }
 
-            $_SESSION['openfilepaths'] = $paths;
+            $this->editorSession->setAllOpenFilePaths($paths);
         }
 
         return $paths;

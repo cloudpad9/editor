@@ -2,42 +2,27 @@
 /**
  * services.php — DI Container bindings cho CloudPad.
  *
- * Phase 10: Wire tất cả service dependencies không còn qua Builder.
- * Builder nhận Container và dùng nó để resolve services.
- *
- * Thứ tự đăng ký phải bottom-up (leaf services trước):
- *   GitService (0 deps)
- *   OutputManager (0 deps)
- *   ProcessManager (OutputManager)
- *   FileOperations (RepositoryManager, OutputManager)   ← circular bootstrap issue
- *   RepositoryManager (OutputManager, FileOps, FileSearch, pluginFsLoader)
- *   FileSearchService (OutputManager, RepositoryManager)
- *   AuthService (FileOps)
- *   ColorManager (RepositoryManager, FileOps)
- *   RevisionManager (Auth, FileOps, RepositoryManager)
- *   SyncService (RepositoryManager, FileOps)
- *   SSHService (OutputManager, ProcessManager, RepositoryManager)
- *   EditorService (all the above)
- *   SNRService (OutputManager, RepositoryManager, FileOps)
- *
- * NOTE: FileOperations ↔ RepositoryManager có bootstrapping dependency:
- * FileOps cần RepoManager để getLocalizedPath(), nhưng RepoManager cần FileOps
- * để tryExec() khi rebuilding index.
- * Giải pháp: RepositoryManager nhận FileOps qua lazy callback ở Phase 10.5.
- * Hiện tại: giải quyết bằng cách Builder tự new() trực tiếp, Container chỉ
- * dùng cho services không có circular bootstrap issue.
+ * Phase 10: Wire service dependencies không còn qua Builder.
+ * Phase 11: Wire session stores vào services.
  */
 
 use CloudPad\Auth\AuthService;
 use CloudPad\Core\Container;
 use CloudPad\Core\Output\OutputManager;
 use CloudPad\Core\Process\ProcessManager;
+use CloudPad\Core\Session\AuthSessionStore;
+use CloudPad\Core\Session\EditorSessionStore;
+use CloudPad\Core\Session\I18nSessionStore;
+use CloudPad\Core\Session\NativeSession;
+use CloudPad\Core\Session\SNRSessionStore;
+use CloudPad\Core\Session\SSHSessionStore;
 use CloudPad\Editor\ColorManager;
 use CloudPad\Editor\EditorService;
 use CloudPad\Editor\RevisionManager;
 use CloudPad\Editor\SyncService;
 use CloudPad\FileSystem\FileOperations;
 use CloudPad\Git\GitService;
+use CloudPad\I18n\Translator;
 use CloudPad\Repository\RepositoryManager;
 use CloudPad\Search\FileSearchService;
 use CloudPad\Search\SearchAndReplace\SNRService;
@@ -45,30 +30,30 @@ use CloudPad\SSH\SSHService;
 
 return function (Container $c, string $appDir, callable $pluginFsLoader): void {
 
+    // ── Session (singleton native session) ────────────────────────────────────
+    $c->instance(NativeSession::class, NativeSession::getInstance());
+
+    $c->singleton(AuthSessionStore::class,   fn($c) => new AuthSessionStore($c->get(NativeSession::class)));
+    $c->singleton(EditorSessionStore::class, fn($c) => new EditorSessionStore($c->get(NativeSession::class)));
+    $c->singleton(SSHSessionStore::class,    fn($c) => new SSHSessionStore($c->get(NativeSession::class)));
+    $c->singleton(SNRSessionStore::class,    fn($c) => new SNRSessionStore($c->get(NativeSession::class)));
+    $c->singleton(I18nSessionStore::class,   fn($c) => new I18nSessionStore($c->get(NativeSession::class)));
+
     // ── Leaf services (no CloudPad deps) ─────────────────────────────────────
     $c->singleton(GitService::class, fn() => new GitService());
 
     $c->singleton(OutputManager::class, fn() => new OutputManager());
 
-    // ── Process ───────────────────────────────────────────────────────────────
-    // userDataDir будет заполнен позже через setUserDataDir() после auth()
     $c->singleton(ProcessManager::class, fn($c) =>
         new ProcessManager($c->get(OutputManager::class), '')
     );
 
-    // ── FileOperations + RepositoryManager (bootstrapped together) ────────────
-    // FileOps нужен RepoManager для getLocalizedPath,
-    // RepoManager нужен FileOps для tryExec.
-    // Решение: создаём их в правильном порядке через две фазы:
-    // 1. FileOps получает временный "stub" RepoManager-proxy
-    // 2. После создания RepoManager, внедряем его в FileOps
+    // ── Translator ────────────────────────────────────────────────────────────
+    $c->singleton(Translator::class, fn($c) =>
+        new Translator($appDir, $c->get(I18nSessionStore::class))
+    );
 
-    // FileSearchService нужен до RepositoryManager (RepositoryManager зависит от него)
-    // но FileSearchService нужен RepositoryManager → bootstrap через lazy proxy.
-    // Простое решение: все три создаются вместе в Builder::__construct через
-    // прямое new(), минуя Container для этой группы.
-    // Container используется для остальных services.
-
+    // ── Core services (lazy circular bootstrap handled by Container) ──────────
     $c->singleton(FileOperations::class, fn($c) =>
         new FileOperations(
             $c->get(RepositoryManager::class),
@@ -89,13 +74,19 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
             $c->get(FileOperations::class),
             $c->get(FileSearchService::class),
             $appDir,
-            $pluginFsLoader
+            $pluginFsLoader,
+            $c->get(AuthSessionStore::class),
+            $c->get(EditorSessionStore::class)
         )
     );
 
     // ── Auth ──────────────────────────────────────────────────────────────────
     $c->singleton(AuthService::class, fn($c) =>
-        new AuthService($c->get(FileOperations::class), $appDir)
+        new AuthService(
+            $c->get(FileOperations::class),
+            $c->get(AuthSessionStore::class),
+            $appDir
+        )
     );
 
     // ── Editor sub-services ───────────────────────────────────────────────────
@@ -103,7 +94,8 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
         new ColorManager(
             $c->get(RepositoryManager::class),
             $c->get(FileOperations::class),
-            $appDir
+            $appDir,
+            $c->get(AuthSessionStore::class)
         )
     );
 
@@ -126,7 +118,8 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
         new SSHService(
             $c->get(OutputManager::class),
             $c->get(ProcessManager::class),
-            $c->get(RepositoryManager::class)
+            $c->get(RepositoryManager::class),
+            $c->get(SSHSessionStore::class)
         )
     );
 
@@ -138,7 +131,8 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
             $c->get(AuthService::class),
             $c->get(ColorManager::class),
             $c->get(RevisionManager::class),
-            $c->get(OutputManager::class)
+            $c->get(OutputManager::class),
+            $c->get(EditorSessionStore::class)
         )
     );
 
@@ -146,7 +140,8 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
         new SNRService(
             $c->get(OutputManager::class),
             $c->get(RepositoryManager::class),
-            $c->get(FileOperations::class)
+            $c->get(FileOperations::class),
+            $c->get(SNRSessionStore::class)
         )
     );
 };

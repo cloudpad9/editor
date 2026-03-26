@@ -202,8 +202,8 @@ class Builder
         $this->_editorService     = $container->get(\CloudPad\Editor\EditorService::class);
         $this->_snr               = $container->get(\CloudPad\Search\SearchAndReplace\SNRService::class);
 
-        // Translator không nằm trong Container (stateful, cần $appDir trực tiếp)
-        $this->_translator = new \CloudPad\I18n\Translator($appDir);
+        // Translator — Phase 11: now in Container (has I18nSessionStore)
+        $this->_translator = $container->get(\CloudPad\I18n\Translator::class);
     }
 
     /**
@@ -399,8 +399,8 @@ class Builder
             return;
         }
 
-        $_SESSION['DIFF_FROM'] = $from_text;
-        $_SESSION['DIFF_TO']   = $to_text;
+        \CloudPad\Core\Session\NativeSession::getInstance()->set('DIFF_FROM', $from_text);
+        \CloudPad\Core\Session\NativeSession::getInstance()->set('DIFF_TO', $to_text);
 
         $from_text = mb_convert_encoding($from_text, 'HTML-ENTITIES', 'UTF-8');
         $to_text   = mb_convert_encoding($to_text,   'HTML-ENTITIES', 'UTF-8');
@@ -655,9 +655,10 @@ class Builder
      */
     static function getAvailablePluginsOfCurrentUser()
     {
-        $plugins = isset($_SESSION['builder.user']['plugins']) ? $_SESSION['builder.user']['plugins'] : array();
+        $user    = \CloudPad\Core\Session\NativeSession::getInstance()->get('builder.user', []);
+        $plugins = (array) ($user['plugins'] ?? []);
 
-        if (!empty($_SESSION['builder.user']['repositories'])) {
+        if (!empty($user['repositories'])) {
             $plugins[] = 'editor';
         }
 
@@ -672,7 +673,8 @@ class Builder
      */
     static function getEnabledPluginsOfCurrentUser()
     {
-        $plugins = $_SESSION['builder.user']['plugins'] ?? [];
+        $user    = \CloudPad\Core\Session\NativeSession::getInstance()->get('builder.user', []);
+        $plugins = (array) ($user['plugins'] ?? []);
         return $plugins;
     }
 
@@ -699,7 +701,7 @@ class Builder
      */
     function getCurrentUser()
     {
-        return $_SESSION['builder.user'];
+        return \CloudPad\Core\Session\NativeSession::getInstance()->get('builder.user', []);
     }
 
     /**
@@ -707,7 +709,7 @@ class Builder
      */
     function getCurrentUsername()
     {
-        return $_SESSION['builder.username'];
+        return \CloudPad\Core\Session\NativeSession::getInstance()->get('builder.username', '');
     }
 
     /**

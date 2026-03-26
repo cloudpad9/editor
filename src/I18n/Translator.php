@@ -5,9 +5,12 @@ class Translator
 {
     private string $appDir;
 
-    public function __construct(string $appDir)
+    private \CloudPad\Core\Session\I18nSessionStore $i18nSession;
+
+    public function __construct(string $appDir, \CloudPad\Core\Session\I18nSessionStore $i18nSession)
     {
-        $this->appDir = $appDir;
+        $this->appDir      = $appDir;
+        $this->i18nSession = $i18nSession;
     }
 
     public function getLang(): string
@@ -16,8 +19,8 @@ class Translator
 
         if (!empty($lang)) {
             $lang = preg_replace('/[^a-zA-Z0-9\-]/', '', $lang);
-        } elseif (!empty($_SESSION['lang'])) {
-            $lang = $_SESSION['lang'];
+        } elseif ($this->i18nSession->hasLang()) {
+            $lang = $this->i18nSession->getLang();
         } elseif (!empty($_COOKIE['lang'])) {
             $lang = $_COOKIE['lang'];
         } else {
@@ -32,7 +35,7 @@ class Translator
         $lang = $this->getLang();
 
         setcookie('lang', $lang, time() + 86400, '/');
-        $_SESSION['lang'] = $lang;
+        $this->i18nSession->setLang($lang);
 
         $langfile = $this->appDir . "/locales/{$lang}.php";
 
