@@ -69,7 +69,7 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
         // RepoManager sẽ được set sau khi RepoManager được tạo (xem bootstrapCircular bên dưới)
     );
 
-    $c->singleton(RepositoryManager::class, fn($c) => {
+    $c->singleton(RepositoryManager::class, function($c) use ($appDir, $pluginFsLoader) {
         $repoManager = new RepositoryManager(
             $c->get(OutputManager::class),
             $c->get(FileSearchService::class),
