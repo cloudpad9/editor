@@ -85,18 +85,18 @@ class FileOperations implements FileOperationsInterface
         $file    = $this->getLocalizedPath($file, $repository);
 
         if (file_exists($file) && !is_writable($file)) {
-            $this->tryChmod('777', $file);
+            $this->tryChmod('664', $file);
         }
 
         if (file_exists($file) && !is_writable($file)) {
-            $message = "File unwritable: $file<br/>&nbsp;<br/>HINTS:<br/>- chmod 777 $file";
+            $message = "File unwritable: $file<br/>&nbsp;<br/>HINTS:<br/>- chmod 664 $file";
             $this->output->flushLine("[ERROR] $message", true);
             return false;
         }
 
         $dir = dirname($file);
         if (!empty($dir) && !is_dir($dir)) {
-            if (!mkdir($dir, 0777, true)) {
+            if (!mkdir($dir, 0775, true)) {
                 $message = "Cannot create directory: $dir";
                 $this->output->flushLine("[ERROR] $message\n", true);
                 return false;
@@ -104,7 +104,7 @@ class FileOperations implements FileOperationsInterface
         }
 
         if (is_dir($dir) && !is_writable($dir)) {
-            $this->tryChmod('777', $dir);
+            $this->tryChmod('775', $dir);
         }
 
         if (!file_put_contents($file, $content)) {
@@ -129,11 +129,22 @@ class FileOperations implements FileOperationsInterface
 
     // ── Shell helpers ─────────────────────────────────────────────────────────
 
+    // Phase 16: max permission cap — không cho phép group/world write
+    private const SAFE_MAX_MODE = 0775;
+
     public function tryChmod(string $mode, string $filepath): bool
     {
         if (!preg_match('/^[0-7]{3,4}$/', $mode)) {
             return false;
         }
+
+        // Phase 16: cap mode ở 0775 — không bao giờ đặt world-write (0777)
+        $octal = octdec($mode);
+        if ($octal > self::SAFE_MAX_MODE) {
+            $octal = self::SAFE_MAX_MODE;
+            $mode  = decoct($octal);
+        }
+
         return $this->tryExec('chmod ' . escapeshellarg($mode) . ' ' . escapeshellarg($filepath));
     }
 
@@ -142,6 +153,7 @@ class FileOperations implements FileOperationsInterface
         $error     = null;
         $output    = [];
         $returnVar = 0;
+        // Phase 16: wrapper validates + logs all executions
         $cmd       = "/usr/local/bin/execute.sh $command 2>&1";
         exec($cmd, $output, $returnVar);
 

@@ -28,7 +28,7 @@ class SyncService
             $dir = dirname($syncDest);
 
             if (!empty($dir) && !is_dir($dir)) {
-                if (!mkdir($dir, 0777, true)) {
+                if (!mkdir($dir, 0775, true)) {
                     \CloudPad\Core\Response::fail("[ERROR] Cannot create directory: $dir");
                 }
             }

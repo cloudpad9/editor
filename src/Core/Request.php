@@ -92,6 +92,18 @@ class Request
     }
 
     /**
+     * Kiểm tra request có từ mobile device không.
+     * Tách từ Builder::isMobile() (Phase 14).
+     */
+    public static function isMobile(): bool
+    {
+        $ua   = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $host = $_SERVER['HTTP_HOST']       ?? '';
+        return (bool)(preg_match('/(iphone|ipad|android)/i', $ua)
+            || preg_match('/^m\./i', $host));
+    }
+
+    /**
      * Trả về tất cả $_REQUEST đã sanitize cơ bản (strip tags).
      * Dùng khi cần log hoặc debug — không dùng cho business logic.
      */

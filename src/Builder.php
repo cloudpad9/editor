@@ -223,15 +223,8 @@ class Builder
         \CloudPad\Core\Response::fail((string)$message);
     }
 
-    function isMobile() {
-        $ua = $_SERVER['HTTP_USER_AGENT'];
-        $host = $_SERVER['HTTP_HOST'];
-
-        $is_mobile = preg_match('/(iphone|ipad|android)/i', $ua)
-            || preg_match('/^m\./i', $host);
-
-        return $is_mobile;
-    }
+    // Phase 14: isMobile() → Request::isMobile()
+    function isMobile() { return \CloudPad\Core\Request::isMobile(); }
 
     function __destruct() {
         $this->serializeUserSessionData();
@@ -259,14 +252,8 @@ class Builder
 
     function get_browser_language() { return $this->_translator->getBrowserLanguage(); }
 
-    function get_public_user_info() {
-        $info = array(
-            'acl' => ['notepad'],
-            'repositories' => []
-        );
-
-        return $info;
-    }
+    // Phase 14: get_public_user_info() → AuthService::getPublicUserInfo()
+    function get_public_user_info() { return $this->_auth->getPublicUserInfo(); }
 
     function execute_linux($cmd, $check_cmd = true) { return $this->_sshService->executeLinux($cmd, $check_cmd); }
 
@@ -424,95 +411,41 @@ class Builder
 
     function ssh_exec_2($commands, $verbose = true) { return $this->_sshService->sshExec2($commands, $verbose); }
 
-    function standalone_editor() {
-        $filename   = \CloudPad\Core\Request::getString('filename');
-        $repository = \CloudPad\Core\Request::getString('repository');
+    // Phase 14: standalone_editor → Router::renderStandaloneEditor (called directly by Router now)
 
-        $builder = $this;
-        include __DIR__ . '/tpl/standalone_editor.tpl';
-    }
+    // Phase 14: is_plugin_command/execute_plugin_command → Router::resolvePluginCommand()
+    // Kept as backward-compat wrappers; Router now owns this logic.
+    function is_plugin_command($command_path, &$handler, &$methodname)
+    {
+        $router   = new \CloudPad\Core\Router($this);
+        $resolved = $router->resolvePluginCommand($command_path);
 
-    function is_plugin_command($command_path, &$handler, &$methodname) {
-        $handler = '';
-
-        if (!preg_match('/^[a-z0-9_\-\.\/]+$/is', $command_path)) {
+        if ($resolved === null) {
+            $handler    = null;
+            $methodname = null;
             return false;
         }
 
-        $parts = explode('/', str_replace('-', '_', $command_path));
-
-        $command = array_pop($parts);
-        $command_dir = implode('/', $parts);
-
-        $dir = __DIR__.'/plugins/commands';
-
-        if (!empty($command_dir)) {
-            $filepath = $dir."/$command_dir/$command.php";
-        } else {
-            $filepath = $dir."/$command.php";
-        }
-
-        $use_index_file = false;
-
-        if (!file_exists($filepath)) {
-            if (!empty($command_dir)) {
-                $filepath = $dir."/$command_dir/index.php";
-            } else {
-                $command_dir = $command;
-                $command = 'index';
-
-                $filepath = $dir."/$command_dir/index.php";
-            }
-
-            if (!file_exists($filepath)) {
-                return false;
-            }
-
-            $use_index_file = true;
-        }
-
-        require_once($filepath);
-
-        $filename = basename($filepath);
-        $funcname = str_replace(array('-', '.', '/'), '_', $command_path);
-
-        if ($use_index_file) {
-            $classname = 'plugin_command_'.str_replace(array('-', '.', '/'), '_', $command_dir);
-            $methodname = $command;
-        } else {
-            $classname = 'plugin_command_'.str_replace(array('-', '.', '/'), '_', $command_path);
-            $methodname = 'execute';
-        }
-
-        if (class_exists($classname)) {
-            $handler = new $classname();
-
-            if (!method_exists($handler, $methodname)) {
-                $this->verbose("[ERROR] Class '$classname' should declare method `$methodname()`");
-
-                $handler = null;
-                $methodname = null;
-
-                return false;
-            }
-
-            return true;
-        } else if (function_exists($funcname)) {
-            $handler = $funcname;
-
-            return true;
-        } else {
-            $this->verbose("[ERROR] $filename should declare a class '$classname' or a function '$funcname'");
-        }
-
-        return false;
+        [$handler, $methodname] = $resolved;
+        return true;
     }
 
-    function execute_plugin_command($command_path) {
-        if ($this->is_plugin_command($command_path, $handler, $methodname)) {
-            if (is_object($handler)) {
-                return $handler->$methodname($this);
-            } else {
+    function execute_plugin_command($command_path)
+    {
+        $router   = new \CloudPad\Core\Router($this);
+        $resolved = $router->resolvePluginCommand($command_path);
+
+        if ($resolved === null) {
+            $this->error("`$command_path` is not a valid plugin command");
+            return;
+        }
+
+        [$handler, $methodname] = $resolved;
+        if (is_object($handler)) {
+            return $handler->$methodname($this);
+        }
+        return $handler($this);
+    } else {
                 return $handler($this);
             }
         } else {
@@ -696,21 +629,9 @@ class Builder
         return in_array($key, $perms) || in_array('all', $perms);
     }
 
-    /**
-     * Trả thông tin user hiện tại.
-     */
-    function getCurrentUser()
-    {
-        return \CloudPad\Core\Session\NativeSession::getInstance()->get('builder.user', []);
-    }
-
-    /**
-     * Trả username hiện tại.
-     */
-    function getCurrentUsername()
-    {
-        return \CloudPad\Core\Session\NativeSession::getInstance()->get('builder.username', '');
-    }
+    // Phase 14: delegate identity to AuthService
+    function getCurrentUser()     { return $this->_auth->getCurrentUser(); }
+    function getCurrentUsername() { return $this->_auth->getCurrentUsername(); }
 
     /**
      * Load danh sách users từ config.

@@ -87,9 +87,13 @@ class App
         set_time_limit(0);
         ob_implicit_flush(true);
 
-        // Security headers — thay thế X-XSS-Protection: 0 (Phase 16 preview)
+        // Phase 16: Security headers — loại bỏ X-XSS-Protection: 0
         if (!headers_sent()) {
             header('X-Content-Type-Options: nosniff');
+            header('X-Frame-Options: SAMEORIGIN');
+            header('Referrer-Policy: strict-origin-when-cross-origin');
+            // NOTE: Content-Security-Policy không set ở đây vì app dùng inline scripts/styles
+            // rộng rãi — cần refactor frontend trước (Phase 15) để có thể bật CSP nghiêm ngặt.
         }
     }
 

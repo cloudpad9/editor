@@ -9,43 +9,44 @@ use CloudPad\Core\Exceptions\FileSystemException;
 /**
  * Router — Action dispatcher cho CloudPad.
  *
- * Tất cả actions đã được migrate sang plugins/commands/ (Phase 2 hoàn tất).
- * Router chỉ cần:
- *   1. Xử lý standalone editor
- *   2. Delegate sang is_plugin_command()
- *   3. Catch exceptions từ plugin commands và trả JSON error chuẩn
- *   4. Log unknown actions
- *
- * Phase 6: Exception-based error handling.
- * Plugin commands nên throw exception thay vì echo/exit trực tiếp.
+ * Phase 6:  Exception-based error handling.
+ * Phase 14: Tách is_plugin_command() + standalone_editor() vào Router.
+ *           Builder không còn routing logic.
  */
 class Router
 {
     /** @var \Builder */
     private $builder;
 
+    /** Absolute path tới thư mục plugins/commands/ */
+    private string $pluginsDir;
+
+    /** Absolute path tới thư mục gốc app (BUILDER_DIR) */
+    private string $appDir;
+
     public function __construct($builder)
     {
-        $this->builder = $builder;
+        $this->builder    = $builder;
+        $this->appDir     = defined('BUILDER_DIR') ? BUILDER_DIR : dirname(dirname(__DIR__));
+        $this->pluginsDir = $this->appDir . '/plugins/commands';
     }
 
-    /**
-     * Dispatch action chính.
-     *
-     * @param string $action     Action từ $_REQUEST['action']
-     * @param string $standalone Standalone mode từ $_REQUEST['standalone']
-     */
+    // ── Main dispatch ─────────────────────────────────────────────────────────
+
     public function dispatch(string $action, string $standalone = ''): void
     {
         // Special case: standalone editor
         if ($action === 'open-file' && !empty($standalone)) {
-            $this->builder->standalone_editor();
+            $this->renderStandaloneEditor();
             exit(0);
         }
 
-        // Tất cả actions → plugin commands trong plugins/commands/
         try {
-            if ($this->builder->is_plugin_command($action, $handler, $methodname)) {
+            $resolved = $this->resolvePluginCommand($action);
+
+            if ($resolved !== null) {
+                [$handler, $methodname] = $resolved;
+
                 if (is_object($handler)) {
                     $handler->$methodname($this->builder);
                 } else {
@@ -67,9 +68,104 @@ class Router
             Response::fail('Internal error', ['code' => 500]);
         }
 
-        // Unknown action — chỉ log, không crash (non-ajax request vẫn render UI)
         if (!empty($action)) {
             $this->builder->verbose("[Router] Unknown action: {$action}");
         }
+    }
+
+    // ── Plugin command resolution ─────────────────────────────────────────────
+
+    /**
+     * Tìm plugin command handler cho $commandPath.
+     *
+     * Tách từ Builder::is_plugin_command() (Phase 14).
+     *
+     * @return array{0: object|string, 1: string}|null  [handler, methodname] hoặc null nếu không tìm thấy
+     */
+    public function resolvePluginCommand(string $commandPath): ?array
+    {
+        if (!preg_match('/^[a-z0-9_\-\.\/]+$/is', $commandPath)) {
+            return null;
+        }
+
+        $parts      = explode('/', str_replace('-', '_', $commandPath));
+        $command    = array_pop($parts);
+        $commandDir = implode('/', $parts);
+
+        // Locate PHP file
+        if (!empty($commandDir)) {
+            $filepath = $this->pluginsDir . "/{$commandDir}/{$command}.php";
+        } else {
+            $filepath = $this->pluginsDir . "/{$command}.php";
+        }
+
+        $useIndexFile = false;
+
+        if (!file_exists($filepath)) {
+            // Try index.php fallback
+            if (!empty($commandDir)) {
+                $filepath = $this->pluginsDir . "/{$commandDir}/index.php";
+            } else {
+                $commandDir = $command;
+                $command    = 'index';
+                $filepath   = $this->pluginsDir . "/{$commandDir}/index.php";
+            }
+
+            if (!file_exists($filepath)) {
+                return null;
+            }
+
+            $useIndexFile = true;
+        }
+
+        require_once $filepath;
+
+        $funcname = str_replace(['-', '.', '/'], '_', $commandPath);
+
+        if ($useIndexFile) {
+            $classname  = 'plugin_command_' . str_replace(['-', '.', '/'], '_', $commandDir);
+            $methodname = $command;
+        } else {
+            $classname  = 'plugin_command_' . str_replace(['-', '.', '/'], '_', $commandPath);
+            $methodname = 'execute';
+        }
+
+        if (class_exists($classname)) {
+            $handler = new $classname();
+
+            if (!method_exists($handler, $methodname)) {
+                $this->builder->verbose(
+                    "[ERROR] Class '{$classname}' should declare method `{$methodname}()`"
+                );
+                return null;
+            }
+
+            return [$handler, $methodname];
+        }
+
+        if (function_exists($funcname)) {
+            return [$funcname, ''];
+        }
+
+        $this->builder->verbose(
+            "[ERROR] " . basename($filepath) . " should declare a class '{$classname}' or a function '{$funcname}'"
+        );
+
+        return null;
+    }
+
+    // ── Standalone editor ─────────────────────────────────────────────────────
+
+    /**
+     * Render standalone editor template.
+     * Tách từ Builder::standalone_editor() (Phase 14).
+     */
+    private function renderStandaloneEditor(): void
+    {
+        $filename   = Request::getString('filename');
+        $repository = Request::getString('repository');
+
+        $builder = $this->builder; // expose cho template
+        include $this->appDir . '/tpl/standalone_editor.tpl';
     }
 }
