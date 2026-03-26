@@ -8,6 +8,7 @@
 
 use CloudPad\Auth\AuthService;
 use CloudPad\Core\Container;
+use CloudPad\FileSystem\FileOperations;
 use CloudPad\Core\Output\OutputManager;
 use CloudPad\Core\Process\ProcessManager;
 use CloudPad\Core\Session\AuthSessionStore;
@@ -20,7 +21,6 @@ use CloudPad\Editor\ColorManager;
 use CloudPad\Editor\EditorService;
 use CloudPad\Editor\RevisionManager;
 use CloudPad\Editor\SyncService;
-use CloudPad\FileSystem\FileOperations;
 use CloudPad\Git\GitService;
 use CloudPad\I18n\Translator;
 use CloudPad\Repository\RepositoryManager;
@@ -61,24 +61,27 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
         )
     );
 
+    // ── FileSearchService + RepositoryManager: setter injection để phá circular dep ──
+    // Thứ tự: FileSearchService (không có RepoManager) → RepositoryManager (có FileSearch)
+    // → set RepoManager vào FileSearch sau.
     $c->singleton(FileSearchService::class, fn($c) =>
-        new FileSearchService(
-            $c->get(OutputManager::class),
-            $c->get(RepositoryManager::class)
-        )
+        new FileSearchService($c->get(OutputManager::class))
+        // RepoManager sẽ được set sau khi RepoManager được tạo (xem bootstrapCircular bên dưới)
     );
 
-    $c->singleton(RepositoryManager::class, fn($c) =>
-        new RepositoryManager(
+    $c->singleton(RepositoryManager::class, fn($c) => {
+        $repoManager = new RepositoryManager(
             $c->get(OutputManager::class),
-            $c->get(FileOperations::class),
             $c->get(FileSearchService::class),
             $appDir,
             $pluginFsLoader,
             $c->get(AuthSessionStore::class),
             $c->get(EditorSessionStore::class)
-        )
-    );
+        );
+        // Phá circular: set RepositoryManager vào FileSearchService sau khi tạo
+        $c->get(FileSearchService::class)->setRepositoryManager($repoManager);
+        return $repoManager;
+    });
 
     // ── Auth ──────────────────────────────────────────────────────────────────
     $c->singleton(AuthService::class, fn($c) =>

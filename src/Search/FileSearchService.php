@@ -13,11 +13,20 @@ use CloudPad\Repository\RepositoryManagerInterface;
 class FileSearchService implements FileSearchServiceInterface
 {
     private OutputManager $output;
-    private RepositoryManagerInterface $repoManager;
+    private ?RepositoryManagerInterface $repoManager = null;
 
-    public function __construct(OutputManager $output, RepositoryManagerInterface $repoManager)
+    public function __construct(OutputManager $output)
     {
-        $this->output      = $output;
+        $this->output = $output;
+    }
+
+    /**
+     * Setter injection để phá circular dependency:
+     * FileSearchService ↔ RepositoryManager.
+     * Gọi từ Container sau khi cả 2 service đã được khởi tạo.
+     */
+    public function setRepositoryManager(RepositoryManagerInterface $repoManager): void
+    {
         $this->repoManager = $repoManager;
     }
 
@@ -29,6 +38,9 @@ class FileSearchService implements FileSearchServiceInterface
 
     public function searchForFiles(string $filename, string $repository, int $limit = 0, bool $exact = false): array
     {
+        if ($this->repoManager === null) {
+            return [];
+        }
         $filepaths = $this->repoManager->getRepositoryFilePaths($repository, false);
         return $this->searchForFilesInArray($filename, $filepaths, $limit, $exact);
     }

@@ -2,7 +2,6 @@
 namespace CloudPad\Repository;
 
 use CloudPad\Core\Output\OutputManager;
-use CloudPad\FileSystem\FileOperationsInterface;
 use CloudPad\Search\FileSearchServiceInterface;
 
 /**
@@ -15,7 +14,6 @@ use CloudPad\Search\FileSearchServiceInterface;
 class RepositoryManager implements RepositoryManagerInterface
 {
     private OutputManager $output;
-    private FileOperationsInterface $fileOps;
     private FileSearchServiceInterface $fileSearch;
     private string $appDir;
     /** @var callable */
@@ -31,7 +29,6 @@ class RepositoryManager implements RepositoryManagerInterface
 
     public function __construct(
         OutputManager              $output,
-        FileOperationsInterface    $fileOps,
         FileSearchServiceInterface $fileSearch,
         string                     $appDir,
         callable                   $pluginFsLoader,
@@ -39,7 +36,6 @@ class RepositoryManager implements RepositoryManagerInterface
         \CloudPad\Core\Session\EditorSessionStore $editorSession
     ) {
         $this->output         = $output;
-        $this->fileOps        = $fileOps;
         $this->fileSearch     = $fileSearch;
         $this->appDir         = $appDir;
         $this->pluginFsLoader = $pluginFsLoader;
@@ -288,10 +284,13 @@ class RepositoryManager implements RepositoryManagerInterface
             . ' ' . implode(' ', array_map('escapeshellarg', $dirs))
             . ' ' . escapeshellarg($outputFile);
 
-        $this->fileOps->tryExec($command, $error);
+        // Direct exec — không dùng FileOperations để tránh circular dependency
+        $output    = [];
+        $returnVar = 0;
+        exec("/usr/local/bin/execute.sh $command 2>&1", $output, $returnVar);
 
-        if (!empty($error)) {
-            \CloudPad\Core\Response::fail($error);
+        if ($returnVar !== 0) {
+            \CloudPad\Core\Response::fail(implode("\n", $output));
         }
     }
 }

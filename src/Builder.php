@@ -445,12 +445,6 @@ class Builder
             return $handler->$methodname($this);
         }
         return $handler($this);
-    } else {
-                return $handler($this);
-            }
-        } else {
-            $this->error("`$command_path` is not a valid plugin command");
-        }
     }
 
     /**
