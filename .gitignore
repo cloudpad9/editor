@@ -1,0 +1,27 @@
+# ── Environment & Secrets ─────────────────────────────────────────────────────
+.env
+*.conf.php
+!*.conf.example.php
+!repositories.conf.php.example
+
+# ── Runtime / User Data ───────────────────────────────────────────────────────
+tmp/
+cache/
+locales/
+
+# ── Composer / Vendor ─────────────────────────────────────────────────────────
+# Không commit vendor/ — chạy `composer install` sau khi clone
+/vendor/
+!composer.json
+!composer.lock
+
+# ── OS & Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
