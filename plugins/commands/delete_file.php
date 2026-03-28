@@ -4,13 +4,13 @@ use CloudPad\Core\Exceptions\FileSystemException;
 
 /**
  * delete_file — Xoá file/thư mục trong repository.
- * Phase 6.3: $builder->json_response() → throw exceptions
+ * Phase 6.3: \CloudPad\Core\Response::json() → throw exceptions
  */
 function delete_file($builder) {
     $path       = \CloudPad\Core\Request::getString('path');
     $repository = \CloudPad\Core\Request::getString('repository');
 
-    $filepath = $builder->getAbsolutePath($path, $repository);
+    $filepath = $builder->getRepoManager()->getAbsolutePath($path, $repository);
 
     if (empty($filepath)) {
         throw new NotFoundException('Source file not found.');

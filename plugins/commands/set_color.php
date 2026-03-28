@@ -8,5 +8,5 @@ function set_color($builder) {
     $repository = \CloudPad\Core\Request::require('repository');
     $color      = \CloudPad\Core\Request::getString('color');
 
-    $builder->set_color($filename, $repository, $color);
+    $builder->get(\CloudPad\Editor\ColorManager::class)->setColor($filename, $repository, $color);
 }

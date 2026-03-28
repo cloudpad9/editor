@@ -1,69 +1,51 @@
-<?php class plugin_fs_svn extends plugin_fs {
-    function isAccessible($settings) {
-        $repodir = isset($settings['svn']['dir'])? $settings['svn']['dir'] : '';
-
-        if (!is_dir($repodir)) {
-            return false;
-        }
-
-        return true;
+<?php
+class plugin_fs_svn extends \CloudPad\Plugin\BaseFilesystemPlugin
+{
+    public function isAccessible(array $settings): bool
+    {
+        $repodir = $settings['svn']['dir'] ?? '';
+        return is_dir($repodir);
     }
 
-    function init(&$settings) {
-        $path = $settings['svn']['path'];
-        $repodir = isset($settings['svn']['dir'])? $settings['svn']['dir'] : '';
+    public function init(array &$settings): void
+    {
+        $path     = $settings['svn']['path'];
+        $reponame = basename($path);
+        $repodir  = $settings['svn']['dir'] ?? '';
 
+        if (empty($repodir)) {
+            $repodir = $this->builder->getUserRepositoryDir() . '/' . $reponame;
+        }
+
+        $settings['dirs']     = array_merge($settings['dirs']     ?? [], [$repodir]);
+        $settings['excludes'] = array_merge($settings['excludes'] ?? [], [$repodir . '/.svn']);
+    }
+
+    public function getRepositoryOperations(array $settings): array
+    {
+        $path     = $settings['svn']['path'];
+        $repodir  = $settings['svn']['dir'] ?? '';
         $reponame = basename($path);
 
         if (empty($repodir)) {
-            $repodir = $this->builder->getUserRepositoryDir().'/'.$reponame;
+            $repodir = $this->builder->getUserRepositoryDir() . '/' . $reponame;
         }
 
-        if (isset($settings['dirs'])) {
-            $settings['dirs'][] = $repodir;
-        } else {
-            $settings['dirs'] = array($repodir);
-        }
+        $svn = file_exists('/usr/local/bin/svn') ? '/usr/local/bin/svn' : 'svn';
 
-        if (isset($settings['excludes'])) {
-            $settings['excludes'][] = $repodir.'/.svn';
-        } else {
-            $settings['excludes'] = array($repodir.'/.svn');
-        }
-
-        // if (!is_dir($repodir)) {
-        //     $cmd = "svn co $path $repodir";
-
-        //     $this->builder->ssh_exec_2($cmd);
-        // }
-    }
-
-    function getRepositoryOperations($settings) {
-        $path = $settings['svn']['path'];
-        $repodir = isset($settings['svn']['dir'])? $settings['svn']['dir'] : '';
-
-        $reponame = basename($path);
-
-        if (empty($repodir)) {
-            $repodir = $this->builder->getUserRepositoryDir().'/'.$reponame;
-        }
-
-        $svn = file_exists('/usr/local/bin/svn')? '/usr/local/bin/svn' : 'svn';
-
-        $operations = array(
+        $operations = [
             'svn checkout' => "$svn co $path $repodir",
-            'svn info' => "$svn info $repodir",
-            'svn status' => "$svn status $repodir",
-            'svn update' => "$svn up $repodir",
-            'svn commit' => "$svn commit -m 'X' $repodir"
-        );
+            'svn info'     => "$svn info $repodir",
+            'svn status'   => "$svn status $repodir",
+            'svn update'   => "$svn up $repodir",
+            'svn commit'   => "$svn commit -m 'X' $repodir",
+        ];
 
-        $operations = array_merge($operations, parent::getRepositoryOperations($settings));
-
-        return $operations;
+        return array_merge($operations, parent::getRepositoryOperations($settings));
     }
 
-    function getLocalizedPath($settings, $path) {
+    public function getLocalizedPath(array $settings, string $path): string
+    {
         return $path;
     }
 }

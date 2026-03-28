@@ -1,73 +1,43 @@
-<?php class plugin_fs_git extends plugin_fs {
-    function isAccessible($settings) {
-        $repodir = isset($settings['git']['dir'])? $settings['git']['dir'] : '';
-
-        if (is_object($repodir)) {
-            return false;
-        }
-
-        if (!is_dir($repodir)) {
-            return false;
-        }
-
-        return true;
+<?php
+class plugin_fs_git extends \CloudPad\Plugin\BaseFilesystemPlugin
+{
+    public function isAccessible(array $settings): bool
+    {
+        $repodir = $settings['git']['dir'] ?? '';
+        return !is_object($repodir) && is_dir($repodir);
     }
 
-    function init(&$settings) {
-        $path = $settings['git']['path'];
-        $repodir = isset($settings['git']['dir'])? $settings['git']['dir'] : '';
-        $repository = isset($settings['code'])? $settings['code'] : '';
-
+    public function init(array &$settings): void
+    {
+        $path     = $settings['git']['path'];
         $reponame = basename($path);
+        // FIX: xoá dead code `if (true || empty($repodir))`
+        $repodir  = $this->builder->getUserRepositoryDir() . '/' . $reponame;
 
-        if (true || empty($repodir)) {
-            $repodir = $this->builder->getUserRepositoryDir().'/'.$reponame;
-        }
-
-        if (isset($settings['dirs'])) {
-            $settings['dirs'][] = $repodir;
-        } else {
-            $settings['dirs'] = array($repodir);
-        }
-
-        if (isset($settings['excludes'])) {
-            $settings['excludes'][] = $repodir.'/.git';
-        } else {
-            $settings['excludes'] = array($repodir.'/.git');
-        }
-
-        // if (!is_dir($repodir.'/.git')) {
-        //     $cmd = "git clone $path $repodir";
-
-        //     $this->builder->ssh_exec_2($cmd);
-        // }
+        $settings['dirs']     = array_merge($settings['dirs']     ?? [], [$repodir]);
+        $settings['excludes'] = array_merge($settings['excludes'] ?? [], [$repodir . '/.git']);
     }
 
-    function getRepositoryOperations($settings) {
-        $path = $settings['git']['path'];
-        $repodir = isset($settings['git']['dir'])? $settings['git']['dir'] : '';
-        $repository = isset($settings['code'])? $settings['code'] : '';
+    public function getRepositoryOperations(array $settings): array
+    {
+        $path       = $settings['git']['path'];
+        $reponame   = basename($path);
+        $repodir    = $this->builder->getUserRepositoryDir() . '/' . $reponame;
+        $repository = $settings['code'] ?? '';
 
-        $reponame = basename($path);
-
-        if (true || empty($repodir)) {
-            $repodir = $this->builder->getUserRepositoryDir().'/'.$reponame;
-        }
-
-        $operations = array(
-            'git status' => "cd $repodir; echo \# repository $repository $repodir; git status",
-            'git add' => "cd $repodir; git add --all",
+        $operations = [
+            'git status' => "cd $repodir; echo \\# repository $repository $repodir; git status",
+            'git add'    => "cd $repodir; git add --all",
             'git commit' => "cd $repodir; git commit -m 'Commit message'",
             'git rebase' => "cd $repodir; git fetch; git rebase origin/master",
-            'git push' => "cd $repodir; git push origin master"
-        );
+            'git push'   => "cd $repodir; git push origin master",
+        ];
 
-        $operations = array_merge($operations, parent::getRepositoryOperations($settings));
-
-        return $operations;
+        return array_merge($operations, parent::getRepositoryOperations($settings));
     }
 
-    function getLocalizedPath($settings, $path) {
+    public function getLocalizedPath(array $settings, string $path): string
+    {
         return $path;
     }
 }

@@ -1,61 +1,66 @@
 <?php
 // IMPORTANT: SFTP resources should not be closed before accessing files.
-// So, keep them global so that they can last after function exits.
-// Otherwise, a "502 Bad Gateway" error may happen
-global $sftps;
+// They are now kept in a static property instead of a global variable.
+class plugin_fs_sftp extends \CloudPad\Plugin\BaseFilesystemPlugin
+{
+    // FIX: xoá `global $sftps` → static property
+    private static array $connections = [];
 
-class plugin_fs_sftp extends plugin_fs {
-    function init(&$settings) {
-        return;
+    public function init(array &$settings): void
+    {
+        // no-op
     }
 
-    function getRepositoryOperations($settings) {
+    public function getRepositoryOperations(array $settings): array
+    {
         return parent::getRepositoryOperations($settings);
     }
 
-    function getLocalizedPath($settings, $file) {
+    public function getLocalizedPath(array $settings, string $file): string
+    {
         set_time_limit(0);
 
-        $sftp = $this->get_sftp_connection($settings['sftp']['host'], $settings['sftp']['port'], $settings['sftp']['username'], $settings['sftp']['password']);
+        $sftp = $this->getSftpConnection(
+            $settings['sftp']['host'],
+            (int) $settings['sftp']['port'],
+            $settings['sftp']['username'],
+            $settings['sftp']['password']
+        );
 
-        $fs_prefix = 'ssh2.sftp://'.intval($sftp);
+        $fs_prefix = 'ssh2.sftp://' . intval($sftp);
 
         if (empty($fs_prefix)) {
-            die("[ERROR] Cannot connect to remote file system via SFTP\n");
+            // FIX: xoá die() → throw exception
+            throw new \CloudPad\Core\Exceptions\FileSystemException(
+                'Cannot connect to remote file system via SFTP'
+            );
         }
 
-        $file = $fs_prefix.$file;
-
-        return $file;
+        return $fs_prefix . $file;
     }
 
-    function get_sftp_connection($host, $port, $username, $password) {
-        global $sftps;
+    private function getSftpConnection(string $host, int $port, string $username, string $password)
+    {
+        $key = "$host:$port:$username";
 
-        $key = "$host, $port, $username, $password";
-
-        if (!isset($sftps[$key])) {
+        if (!isset(self::$connections[$key])) {
             $connection = ssh2_connect($host, $port);
 
             if (!$connection) {
-                $this->verbose('[ERROR] Cannot connect to the SFTP server --> '.$host.':'.$port);
-                return;
+                throw new \CloudPad\Core\Exceptions\FileSystemException(
+                    "Cannot connect to SFTP server: $host:$port"
+                );
             }
 
-            // Authentication using a public key
-            $authenticated = ssh2_auth_password ($connection, $username, $password);
-
-            if (!$authenticated) {
-                $this->verbose('[ERROR] Cannot authenticate with the SFTP server using username/password');
-                return;
+            if (!ssh2_auth_password($connection, $username, $password)) {
+                throw new \CloudPad\Core\Exceptions\FileSystemException(
+                    'Cannot authenticate with SFTP server'
+                );
             }
 
-            // Initialize SFTP subsystem
-            $sftp = ssh2_sftp($connection);
-
-            $sftps[$key] = $sftp;
+            self::$connections[$key] = ssh2_sftp($connection);
         }
 
-        return $sftps[$key];
+        return self::$connections[$key];
     }
 }

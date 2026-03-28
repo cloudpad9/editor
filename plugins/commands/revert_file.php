@@ -7,5 +7,5 @@ function revert_file($builder) {
     $filename   = \CloudPad\Core\Request::require('filename');
     $repository = \CloudPad\Core\Request::require('repository');
 
-    $builder->revert_file($filename, $repository);
+    $builder->get(\CloudPad\Editor\RevisionManager::class)->revertFile($filename, $repository);
 }

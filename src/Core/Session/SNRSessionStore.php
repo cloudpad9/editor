@@ -5,7 +5,7 @@ namespace CloudPad\Core\Session;
  * SNRSessionStore — Typed accessor cho Search & Replace session data.
  *
  * Phase 11: Thay thế $_SESSION['snr-backup'] trong SNRService.
- * Cũng quản lý $_SESSION['inline-file'] dùng bởi open_inline_file plugin.
+ * R5: Added saveSearchState() + getters for search UI state.
  */
 class SNRSessionStore
 {
@@ -16,7 +16,7 @@ class SNRSessionStore
         $this->session = $session;
     }
 
-    // ── SNR backup (trước khi replace) ────────────────────────────────────────
+    // ── SNR backup (before replace) ───────────────────────────────────────────
 
     public function getBackup(): array
     {
@@ -25,8 +25,8 @@ class SNRSessionStore
 
     public function setBackupEntry(string $filepath, string $originalContent): void
     {
-        $backup             = $this->getBackup();
-        $backup[$filepath]  = $originalContent;
+        $backup            = $this->getBackup();
+        $backup[$filepath] = $originalContent;
         $this->session->set('snr-backup', $backup);
     }
 
@@ -46,4 +46,32 @@ class SNRSessionStore
     {
         $this->session->set('inline-file', $filepath);
     }
+
+    // ── Search UI state (persisted so the SNR tab restores correctly) ─────────
+
+    public function saveSearchState(
+        string $repository,
+        string $search,
+        string $fileMask,
+        int    $maxFilesReturned,
+        string $replace,
+        string $batchSnr,
+        bool   $batchMode
+    ): void {
+        $this->session->set('snr-repository',     $repository);
+        $this->session->set('search',             $search);
+        $this->session->set('file-mask',          $fileMask);
+        $this->session->set('max-files-returned', $maxFilesReturned);
+        $this->session->set('replace',            $replace);
+        $this->session->set('batch-snr',          $batchSnr);
+        $this->session->set('snr-batch-mode',     $batchMode);
+    }
+
+    public function getRepository(): string { return (string) $this->session->get('snr-repository',     ''); }
+    public function getSearch(): string     { return (string) $this->session->get('search',             ''); }
+    public function getFileMask(): string   { return (string) $this->session->get('file-mask',          ''); }
+    public function getMaxFiles(): int      { return (int)    $this->session->get('max-files-returned', 20); }
+    public function getReplace(): string    { return (string) $this->session->get('replace',            ''); }
+    public function getBatchSnr(): string   { return (string) $this->session->get('batch-snr',          ''); }
+    public function isBatchMode(): bool     { return (bool)   $this->session->get('snr-batch-mode',     false); }
 }

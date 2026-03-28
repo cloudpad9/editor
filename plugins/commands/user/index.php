@@ -53,7 +53,7 @@ class plugin_command_user
 
     private function _login(string $username, string $password, $builder): void
     {
-        $users = $builder->getUsers();
+        $users = $builder->getAuth()->getUsers();
         $error = '';
 
         if (!isset($users[$username])) {

@@ -7,5 +7,5 @@ function get_directory_children($builder) {
     $repository = \CloudPad\Core\Request::require('repository');
     $path       = \CloudPad\Core\Request::getString('path');
 
-    $builder->get_directory_children($repository, $path);
+    $builder->getEditorService()->getDirectoryChildren($repository, $path);
 }

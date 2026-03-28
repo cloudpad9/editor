@@ -1,14 +1,18 @@
 <?php
-class plugin_tab_diff {
-    function getTabTitle() {
+class plugin_tab_diff extends \CloudPad\Plugin\BaseTabPlugin
+{
+    public function getTabTitle(): string
+    {
         return 'DIFF';
     }
 
-    function getPluginInfo() {
-        return array('title' => 'Diff', 'category' => 'Development', 'description' => 'Compare strings for differences');
+    public function getPluginInfo(): ?array
+    {
+        return ['title' => 'Diff', 'category' => 'Development', 'description' => 'Compare strings for differences'];
     }
 
-    function render($builder) {
-        include(dirname(__FILE__).'/index.tpl');
+    public function render($builder): void
+    {
+        include __DIR__ . '/index.tpl';
     }
 }

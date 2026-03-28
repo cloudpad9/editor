@@ -6,7 +6,7 @@
 function rebuild_filepaths_indexes($builder) {
     $repository = \CloudPad\Core\Request::require('repository');
 
-    $filepaths = $builder->getProjectFilePaths($repository, true);
+    $filepaths = $builder->getRepoManager()->getProjectFilePaths($repository, true);
 
     $_SESSION['recentfilepaths'] = [];
 

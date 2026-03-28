@@ -24,11 +24,12 @@ use CloudPad\Editor\SyncService;
 use CloudPad\Git\GitService;
 use CloudPad\I18n\Translator;
 use CloudPad\Repository\RepositoryManager;
+use CloudPad\Plugin\PluginManager;
 use CloudPad\Search\FileSearchService;
 use CloudPad\Search\SearchAndReplace\SNRService;
 use CloudPad\SSH\SSHService;
 
-return function (Container $c, string $appDir, callable $pluginFsLoader): void {
+return function (Container $c, string $appDir): void {
 
     // ── Session (singleton native session) ────────────────────────────────────
     $c->instance(NativeSession::class, NativeSession::getInstance());
@@ -61,6 +62,17 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
         )
     );
 
+    // ── PluginManager ─────────────────────────────────────────────────────────
+    // Must be registered before RepositoryManager (uses it as pluginFsLoader).
+    $c->singleton(PluginManager::class, fn($c) =>
+        new PluginManager(
+            $appDir,
+            $c->get(OutputManager::class),
+            $c->get(RepositoryManager::class),
+            $c->get(AuthService::class)
+        )
+    );
+
     // ── FileSearchService + RepositoryManager: setter injection để phá circular dep ──
     // Thứ tự: FileSearchService (không có RepoManager) → RepositoryManager (có FileSearch)
     // → set RepoManager vào FileSearch sau.
@@ -69,7 +81,10 @@ return function (Container $c, string $appDir, callable $pluginFsLoader): void {
         // RepoManager sẽ được set sau khi RepoManager được tạo (xem bootstrapCircular bên dưới)
     );
 
-    $c->singleton(RepositoryManager::class, function($c) use ($appDir, $pluginFsLoader) {
+    $c->singleton(RepositoryManager::class, function($c) use ($appDir) {
+        $pluginFsLoader = fn(string $fs, &$handler) =>
+            $c->get(PluginManager::class)->loadFsPlugin($fs, $handler);
+
         $repoManager = new RepositoryManager(
             $c->get(OutputManager::class),
             $c->get(FileSearchService::class),

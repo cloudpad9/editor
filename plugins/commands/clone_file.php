@@ -8,5 +8,5 @@ function clone_file($builder) {
     $repository = \CloudPad\Core\Request::require('repository');
     $newname    = \CloudPad\Core\Request::require('newname');
 
-    $builder->clone_file($filename, $repository, $newname);
+    $builder->getEditorService()->cloneFile($filename, $repository, $newname);
 }

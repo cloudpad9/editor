@@ -10,5 +10,5 @@ function delete_user_file($builder) {
         \CloudPad\Core\Response::fail('Missing file name.');
     }
 
-    $builder->delete_user_file($name);
+    $builder->getEditorService()->deleteUserFile($name);
 }

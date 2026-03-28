@@ -13,7 +13,7 @@ use CloudPad\Core\Exceptions\FileSystemException;
  *   to          string   Destination directory path
  *
  * Phase 5: gộp copy_files + move_files → operation param
- * Phase 6.3: $builder->json_response() → throw exceptions
+ * Phase 6.3: \CloudPad\Core\Response::json() → throw exceptions
  */
 function file_transfer($builder) {
     $operation  = \CloudPad\Core\Request::getString('operation', 'copy');
@@ -25,7 +25,7 @@ function file_transfer($builder) {
         throw new ValidationException('Missing required parameters.');
     }
 
-    if (!$builder->hasRepositoryPermission($repository)) {
+    if (!$builder->getRepoManager()->hasRepositoryPermission($repository)) {
         throw new PermissionDeniedException('Permission denied.');
     }
 
@@ -33,7 +33,7 @@ function file_transfer($builder) {
         throw new ValidationException('Invalid operation. Use "copy" or "move".');
     }
 
-    $toDir = $builder->getAbsolutePath($toPath, $repository);
+    $toDir = $builder->getRepoManager()->getAbsolutePath($toPath, $repository);
     if (!is_dir($toDir)) {
         throw new ValidationException("Destination '$toPath' is not a directory.");
     }
@@ -46,7 +46,7 @@ function file_transfer($builder) {
         $path = trim($path);
         if (empty($path)) continue;
 
-        $absPath = $builder->getAbsolutePath($path, $repository);
+        $absPath = $builder->getRepoManager()->getAbsolutePath($path, $repository);
         if (empty($absPath) || !file_exists($absPath)) continue;
 
         $builder->try_exec($shellCmd . ' ' . escapeshellarg($absPath) . ' ' . escapeshellarg($toDir));

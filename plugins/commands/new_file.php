@@ -40,7 +40,7 @@ function new_file($builder) {
     }
 
     ob_start();
-    $builder->try_chmod('775', $dir);
+    $builder->getFileOps()->tryChmod('775', $dir);
     $output = ob_get_clean();
 
     if (!empty($output)) {

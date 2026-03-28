@@ -1,14 +1,18 @@
 <?php
-class plugin_tab_snr {
-    function getTabTitle() {
+class plugin_tab_snr extends \CloudPad\Plugin\BaseTabPlugin
+{
+    public function getTabTitle(): string
+    {
         return 'SEARCH';
     }
 
-    function getPluginInfo() {
-        return array('title' => 'Search & Replace', 'category' => 'Development', 'description' => '');
+    public function getPluginInfo(): ?array
+    {
+        return ['title' => 'Search & Replace', 'category' => 'Development', 'description' => ''];
     }
 
-    function render($builder) {
-        include(dirname(__FILE__).'/index.tpl');
+    public function render($builder): void
+    {
+        include __DIR__ . '/index.tpl';
     }
 }

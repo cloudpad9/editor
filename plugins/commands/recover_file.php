@@ -7,5 +7,5 @@ function recover_file($builder) {
     $filename   = \CloudPad\Core\Request::require('filename');
     $repository = \CloudPad\Core\Request::require('repository');
 
-    $builder->recover_file($filename, $repository);
+    $builder->get(\CloudPad\Editor\RevisionManager::class)->recoverFile($filename, $repository);
 }

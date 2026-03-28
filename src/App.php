@@ -19,7 +19,7 @@ class App
     private static ?self $instance = null;
 
     private string $appDir;
-    private \Builder $builder;
+    private Builder $builder;
 
     // ── Singleton boot ────────────────────────────────────────────────────
 
@@ -121,7 +121,7 @@ class App
             'user/facebookLogin',
         ];
 
-        $this->builder = new \Builder();
+        $this->builder = new Builder();
         $this->builder->load_language_file();
 
         // Auth check
@@ -148,7 +148,7 @@ class App
 
     // ── Accessors ─────────────────────────────────────────────────────────
 
-    public function getBuilder(): \Builder
+    public function getBuilder(): Builder
     {
         return $this->builder;
     }

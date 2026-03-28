@@ -7,5 +7,5 @@ function file_live_search($builder) {
     $repository = \CloudPad\Core\Request::require('repository');
     $filename   = \CloudPad\Core\Request::getString('filename');
 
-    $builder->file_live_search($repository, $filename);
+    $builder->getEditorService()->fileLiveSearch($repository, $filename);
 }

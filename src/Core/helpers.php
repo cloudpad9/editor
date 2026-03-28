@@ -35,3 +35,14 @@ if (!function_exists('json_success')) {
         \CloudPad\Core\Response::ok($payload, $message);
     }
 }
+
+if (!function_exists('session_get')) {
+    /**
+     * Safe $_SESSION accessor — replaces direct $_SESSION access in templates.
+     * R4: Added to remove template coupling to superglobal.
+     */
+    function session_get(string $key, mixed $default = null): mixed
+    {
+        return \CloudPad\Core\Session\NativeSession::getInstance()->get($key, $default);
+    }
+}

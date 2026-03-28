@@ -56,8 +56,6 @@ class EditorService implements EditorServiceInterface
      */
     public function openFileByName(string $filename, bool $fromcache, string $repository): void
     {
-        global $ajax;
-
         $filepath = $this->fileSearch->searchForFile($filename, $repository);
 
         if (empty($filepath)) {
@@ -67,7 +65,7 @@ class EditorService implements EditorServiceInterface
 
         $this->setFilePath($filename, $filepath, $repository);
 
-        if ($ajax) {
+        if (\CloudPad\Core\Request::isAjax()) {
             $content = $this->fileOps->fileGetContents($filepath, $repository);
             $color   = $this->colorManager->getColor($filepath);
             $rpath   = $this->repoManager->getRepositoryWisePath($filepath, $repository, $filename);
@@ -690,12 +688,10 @@ class EditorService implements EditorServiceInterface
         $content2 = substr($content2, 0, $size);
 
         if ($content1 !== $content2) {
-            // giữ legacy debug output để không break behavior
-            echo "content1 = $content1<br/>";
-            echo "content2 = $content2<br/>";
+            return false;
         }
 
-        return $content1 === $content2;
+        return true;
     }
 
     // ── Session / file path registry ─────────────────────────────────────────

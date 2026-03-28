@@ -8,5 +8,5 @@ function close_file($builder) {
     $repository = \CloudPad\Core\Request::require('repository');
     $standalone = \CloudPad\Core\Request::getBool('standalone');
 
-    $builder->close_file($filename, $repository, $standalone);
+    $builder->getEditorService()->closeFile($filename, $repository, $standalone);
 }

@@ -7,5 +7,5 @@ function rebuild_sub_indexes($builder) {
     $filename   = \CloudPad\Core\Request::require('filename');
     $repository = \CloudPad\Core\Request::require('repository');
 
-    $builder->rebuild_sub_indexes($filename, $repository, true);
+    $builder->getEditorService()->rebuildSubIndexes($filename, $repository, true);
 }

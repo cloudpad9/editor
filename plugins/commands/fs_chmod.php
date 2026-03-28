@@ -4,7 +4,7 @@ use CloudPad\Core\Exceptions\PermissionDeniedException;
 
 /**
  * fs_chmod — Thay đổi quyền file.
- * Phase 6.3: $builder->json_response() → throw exceptions
+ * Phase 6.3: \CloudPad\Core\Response::json() → throw exceptions
  */
 function fs_chmod($builder) {
     $file       = \CloudPad\Core\Request::getString('file');
@@ -19,10 +19,10 @@ function fs_chmod($builder) {
         throw new ValidationException('Invalid mode. Use octal format (e.g. 755).');
     }
 
-    if (!empty($repository) && !$builder->hasRepositoryPermission($repository)) {
+    if (!empty($repository) && !$builder->getRepoManager()->hasRepositoryPermission($repository)) {
         throw new PermissionDeniedException('Permission denied.');
     }
 
     $command = 'chmod ' . escapeshellarg($mode) . ' ' . escapeshellarg($file);
-    $builder->execute_linux($command);
+    $builder->get(\CloudPad\SSH\SSHService::class)->executeLinux($command);
 }

@@ -7,7 +7,7 @@ function open_inline_file($builder) {
     $repository = \CloudPad\Core\Request::require('repository');
     $file       = \CloudPad\Core\Request::require('file');
 
-    $filepath = $builder->searchForFile($file, $repository);
+    $filepath = $builder->get(\CloudPad\Search\FileSearchService::class)->searchForFile($file, $repository);
 
     if (empty($filepath)) {
         \CloudPad\Core\Response::fail("File not found: $file");

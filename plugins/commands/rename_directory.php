@@ -29,7 +29,7 @@ function rename_directory($builder) {
         throw new FileSystemException("Cannot rename $filepath -> $newfilepath.");
     }
 
-    $rpath = $builder->getRepositoryWisePath($newfilepath, $repository, $newname);
+    $rpath = $builder->getRepoManager()->getRepositoryWisePath($newfilepath, $repository, $newname);
 
     json_ok(['filename' => $rpath, 'repository' => $repository]);
 }

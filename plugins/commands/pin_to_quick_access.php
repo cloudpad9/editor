@@ -1,7 +1,7 @@
 <?php
 /**
  * pin_to_quick_access — Ghim file/folder vào Quick Access.
- * Phase 6.3: $builder->json_response() → json_ok()
+ * Phase 6.3: \CloudPad\Core\Response::json() → json_ok()
  */
 function pin_to_quick_access($builder) {
     $name       = \CloudPad\Core\Request::getString('name');

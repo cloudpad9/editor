@@ -29,9 +29,9 @@ function rename_file($builder) {
         throw new FileSystemException("Cannot rename $filepath -> $newfilepath.");
     }
 
-    $rpath = $builder->getRepositoryWisePath($newfilepath, $repository, $newname);
-    $builder->setFilePath($rpath, $newfilepath, $repository);
-    $builder->addToRepositoryFilePaths($newfilepath, $repository);
+    $rpath = $builder->getRepoManager()->getRepositoryWisePath($newfilepath, $repository, $newname);
+    $builder->getEditorService()->setFilePath($rpath, $newfilepath, $repository);
+    $builder->getEditorService()->addToRepositoryFilePaths($newfilepath, $repository);
 
     $content = $builder->file_get_contents($newfilepath, $repository);
 

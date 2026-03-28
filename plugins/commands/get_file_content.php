@@ -7,5 +7,5 @@ function get_file_content($builder) {
     $filename   = \CloudPad\Core\Request::require('filename');
     $repository = \CloudPad\Core\Request::require('repository');
 
-    $builder->get_file_content($filename, $repository);
+    $builder->getEditorService()->getFileContent($filename, $repository);
 }

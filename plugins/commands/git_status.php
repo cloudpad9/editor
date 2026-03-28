@@ -30,6 +30,6 @@ function git_status($builder) {
     json_ok([
         'output'        => (string)$out,
         'toplevel'      => $toplevel,
-        'git_root_path' => $builder->getRepositoryWisePath($toplevel, $repository, $path),
+        'git_root_path' => $builder->getRepoManager()->getRepositoryWisePath($toplevel, $repository, $path),
     ]);
 }

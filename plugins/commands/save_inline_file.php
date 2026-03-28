@@ -11,7 +11,7 @@ function save_inline_file($builder) {
         \CloudPad\Core\Response::fail('No inline file is open.');
     }
 
-    $builder->file_put_contents($file, $content);
+    $builder->getFileOps()->filePutContents($file, $content);
 
     \CloudPad\Core\Response::ok();
 }

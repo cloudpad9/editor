@@ -6,5 +6,5 @@
 function get_directory_structure($builder) {
     $repository = \CloudPad\Core\Request::require('repository');
 
-    $builder->get_directory_structure($repository);
+    $builder->getEditorService()->getDirectoryStructure($repository);
 }

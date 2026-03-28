@@ -1,14 +1,18 @@
 <?php
-class plugin_tab_editor {
-    function getTabTitle() {
+class plugin_tab_editor extends \CloudPad\Plugin\BaseTabPlugin
+{
+    public function getTabTitle(): string
+    {
         return 'EDITOR';
     }
 
-    function getPluginInfo() {
-        return array('title' => 'Editor', 'category' => 'Development', 'description' => 'Editing files online');
+    public function getPluginInfo(): ?array
+    {
+        return ['title' => 'Editor', 'category' => 'Development', 'description' => 'Editing files online'];
     }
 
-    function render($builder) {
-        include(dirname(__FILE__).'/index.tpl');
+    public function render($builder): void
+    {
+        include __DIR__ . '/index.tpl';
     }
 }

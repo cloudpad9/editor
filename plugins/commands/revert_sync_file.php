@@ -7,5 +7,5 @@ function revert_sync_file($builder) {
     $filename   = \CloudPad\Core\Request::require('filename');
     $repository = \CloudPad\Core\Request::require('repository');
 
-    $builder->sync_file($filename, $repository, true);
+    $builder->get(\CloudPad\Editor\SyncService::class)->syncFile($filename, $repository, true);
 }

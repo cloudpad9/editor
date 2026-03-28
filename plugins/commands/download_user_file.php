@@ -16,5 +16,5 @@ function download_user_file($builder) {
         $_SESSION['files.download.directory'] = $directory;
     }
 
-    $builder->download_user_file($name);
+    $builder->getEditorService()->downloadUserFile($name);
 }

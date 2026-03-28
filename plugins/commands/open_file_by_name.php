@@ -10,5 +10,5 @@ function open_file_by_name($builder) {
 
     $_SESSION['repository'] = $repository;
 
-    $builder->open_file_by_name($filename, $fromcache, $repository);
+    $builder->getEditorService()->openFileByName($filename, $fromcache, $repository);
 }

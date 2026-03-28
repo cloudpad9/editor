@@ -9,5 +9,5 @@ function save_current_file($builder) {
     $content    = \CloudPad\Core\Request::getString('content');
     $autorev    = \CloudPad\Core\Request::getInt('autorev', 0);
 
-    $builder->save_current_file($filename, $repository, $content, $autorev);
+    $builder->getEditorService()->saveCurrentFile($filename, $repository, $content, $autorev);
 }
