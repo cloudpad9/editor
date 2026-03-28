@@ -1,4 +1,4 @@
-<?php if (Builder::hasPermission('editor')) : ?>
+<?php if (\CloudPad\Builder::hasPermission('editor')) : ?>
 <div id="editor" style="height:100%;display: flex;flex-direction: column;">
     <div class="editor-file-bar commandbar">
         <form data-success="setEditorContent" data-verbose="0" action="index.php" method="POST" enctype="multipart/form-data" style="float:left;">

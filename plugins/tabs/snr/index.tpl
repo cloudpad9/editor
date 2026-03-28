@@ -1,4 +1,4 @@
-<?php if (Builder::hasPermission('snr')) : ?>
+<?php if (\CloudPad\Builder::hasPermission('snr')) : ?>
 <style>
 #tabs-snr #snr_search_wrapper {
     position: relative;
